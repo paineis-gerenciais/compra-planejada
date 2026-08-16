@@ -1,0 +1,184 @@
+rules_version = '2';
+
+/*
+  Lista de Compras — Regras de Segurança v5 (blocos E e F)
+
+  O modelo granular muda a forma das regras: em vez de proteger um documento
+  gigante por usuário, protegemos coleções por dono. O dono de uma lista é
+  uma pessoa OU uma família, e é o campo `owner` que decide qual regra vale.
+
+  Isso também é o que torna possível a pendência 1 — mover uma lista entre
+  pessoal e família é uma escrita no campo `owner`, e a regra confere que a
+  pessoa tem permissão nos DOIS lados da mudança.
+*/
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() { return request.auth != null; }
+    function meuUid() { return request.auth.uid; }
+
+    function casa(hid) {
+      return get(/databases/$(database)/documents/households/$(hid)).data;
+    }
+    function papelNaCasa(hid) {
+      return casa(hid).members[meuUid()].role;
+    }
+    function souMembro(hid) {
+      return logado() && meuUid() in casa(hid).members;
+    }
+    function editaNaCasa(hid) {
+      return souMembro(hid) && papelNaCasa(hid) in ['owner', 'editor'];
+    }
+
+    /* Vale para qualquer documento com campo `owner`. */
+    function podeLer(owner) {
+      return logado() && (
+        (owner.kind == 'user' && owner.id == meuUid()) ||
+        (owner.kind == 'household' && souMembro(owner.id))
+      );
+    }
+    function podeEscrever(owner) {
+      return logado() && (
+        (owner.kind == 'user' && owner.id == meuUid()) ||
+        (owner.kind == 'household' && editaNaCasa(owner.id))
+      );
+    }
+
+    // ---------------- perfil ----------------
+    match /users/{uid} {
+      allow read, write: if logado() && meuUid() == uid;
+    }
+
+    // ---------------- listas ----------------
+    match /lists/{listId} {
+      allow read:   if podeLer(resource.data.owner);
+      allow create: if podeEscrever(request.resource.data.owner);
+      allow delete: if podeEscrever(resource.data.owner);
+
+      /* Mover de escopo exige permissão na origem E no destino — senão
+         alguém poderia empurrar uma lista para dentro de uma família de que
+         não participa, ou tirar de uma família sem ser editor lá. */
+      allow update: if podeEscrever(resource.data.owner)
+                    && podeEscrever(request.resource.data.owner);
+
+      match /items/{itemId} {
+        function donoDaLista() {
+          return get(/databases/$(database)/documents/lists/$(listId)).data.owner;
+        }
+        allow read:  if podeLer(donoDaLista());
+        allow write: if podeEscrever(donoDaLista());
+      }
+    }
+
+    // ---------------- compras finalizadas ----------------
+    match /purchases/{purchaseId} {
+      allow read:   if podeLer(resource.data.owner);
+      allow create: if podeEscrever(request.resource.data.owner);
+      allow delete: if podeEscrever(resource.data.owner);
+      // Uma compra finalizada é um retrato do passado. Não se edita.
+      allow update: if false;
+    }
+
+    // ---------------- histórico de preços ----------------
+    match /priceEntries/{entryId} {
+      allow read:   if podeLer(resource.data.owner);
+      allow create: if podeEscrever(request.resource.data.owner)
+                    && request.resource.data.unitPrice is number
+                    && request.resource.data.unitPrice > 0;
+      allow delete: if podeEscrever(resource.data.owner);
+      // Um preço pago é fato consumado; corrigir se faz apagando e lançando.
+      allow update: if false;
+    }
+
+    // ---------------- famílias ----------------
+    match /households/{hid} {
+
+      function membrosAtuais() { return resource.data.members; }
+      function alterou(campos) {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
+      }
+
+      /* Ingresso: quem ainda não é membro se acrescenta, mas só amparado por
+         um convite que o SERVIDOR confere — existe, não expirou, não foi
+         revogado, aponta para esta família e traz o mesmo papel. */
+      function ingressoComConvite() {
+        let entrada = request.resource.data.members[meuUid()];
+        let inv = get(/databases/$(database)/documents/householdInvites/$(entrada.inviteCode)).data;
+        return logado()
+            && !(meuUid() in membrosAtuais())
+            && alterou(['members', 'memberUids', 'updatedAt'])
+            && request.resource.data.members.diff(membrosAtuais()).affectedKeys().hasOnly([meuUid()])
+            && request.resource.data.memberUids.hasAll(resource.data.memberUids)
+            && inv.householdId == hid
+            && inv.expiresAt > request.time.toMillis()
+            && !('revokedAt' in inv && inv.revokedAt != null)
+            && entrada.role == inv.role
+            && entrada.role in ['editor', 'viewer'];
+      }
+
+      function saidaPropria() {
+        return souMembro(hid)
+            && alterou(['members', 'memberUids', 'updatedAt'])
+            && request.resource.data.members.diff(membrosAtuais()).affectedKeys().hasOnly([meuUid()])
+            && !(meuUid() in request.resource.data.members);
+      }
+
+      allow read: if souMembro(hid);
+
+      allow create: if logado()
+                    && request.resource.data.ownerUid == meuUid()
+                    && request.resource.data.memberUids == [meuUid()]
+                    && request.resource.data.members[meuUid()].role == 'owner'
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() > 0
+                    && request.resource.data.name.size() <= 60;
+
+      allow update: if (souMembro(hid) && papelNaCasa(hid) == 'owner')
+                    || ingressoComConvite()
+                    || saidaPropria();
+
+      allow delete: if souMembro(hid) && papelNaCasa(hid) == 'owner';
+
+      match /presence/{uid} {
+        allow read:  if souMembro(hid);
+        allow write: if logado() && meuUid() == uid && souMembro(hid);
+      }
+    }
+
+    /* Convites. O código de 8 caracteres É o segredo: quem o tem, tem o
+       convite. Por isso qualquer autenticado pode LER um convite específico —
+       mas listar a coleção é proibido, então não há como varrer códigos. */
+    match /householdInvites/{code} {
+      allow get:  if logado();
+      allow list: if false;
+
+      allow create: if logado()
+                    && request.resource.data.createdBy == meuUid()
+                    && request.resource.data.role in ['editor', 'viewer']
+                    && request.resource.data.expiresAt is number
+                    && request.resource.data.expiresAt <= request.time.toMillis() + 31536000000
+                    && casa(request.resource.data.householdId).members[meuUid()].role == 'owner';
+
+      /* PENDÊNCIA 3 — revogar. Marca em vez de apagar: quem tentar usar
+         recebe "cancelado" em vez de "não existe", o que é a informação de
+         que a pessoa precisa quando compartilhou o link no grupo errado. */
+      allow update: if logado()
+                    && casa(resource.data.householdId).members[meuUid()].role == 'owner'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revokedAt']);
+
+      allow delete: if logado()
+                    && casa(resource.data.householdId).members[meuUid()].role == 'owner';
+    }
+
+    // Sem migração nesta implantação (corte direto): a coleção monolítica
+    // da v4 nem precisa ser referenciada aqui. Se um dia for necessário
+    // importar dados antigos manualmente, reabra esta seção só durante a
+    // importação e feche de novo depois — nunca deixe uma coleção legada
+    // acessível por padrão.
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

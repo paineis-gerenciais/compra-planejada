@@ -1,0 +1,31 @@
+{
+  "name": "compra-planejada",
+  "version": "5.0.0",
+  "description": "Compra Planejada — PWA de lista de compras com sincronização, colaboração familiar e inteligência de preço (Svelte + TypeScript + Firebase).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json --threshold error",
+    "test": "vitest run",
+    "verificar": "npm run check && npm run test && npm run build"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@tsconfig/svelte": "^5.0.8",
+    "@vitest/coverage-v8": "^4.1.10",
+    "svelte": "^5.56.9",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "firebase": "^12.17.1",
+    "tesseract.js": "^7.0.0"
+  },
+  "private": true,
+  "type": "module"
+}

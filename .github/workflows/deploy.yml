@@ -1,0 +1,97 @@
+# Compra Planejada — CI/CD para o Firebase Hosting
+#
+# Duas situações, um workflow só:
+#
+#  - Pull Request contra `main`  -> builda, testa, publica num CANAL DE
+#    PREVIEW isolado (uma URL temporária só daquela PR, ex:
+#    compra-planejada--pr-7-xxxx.web.app). Isso é a "ferramenta de teste de
+#    versão": cada mudança pode ser aberta e conferida antes do merge, sem
+#    afetar quem já está usando o site.
+#
+#  - Push em `main` (ou seja, um PR foi mesclado) -> builda, testa, publica
+#    no canal LIVE de verdade (compra-planejada.web.app).
+#
+# Em nenhum dos dois casos o site vai ao ar sem passar por `npm run check` e
+# `npm run test` primeiro — um erro de tipo ou um teste quebrado barra o
+# deploy automaticamente, preview ou produção.
+name: Deploy — Compra Planejada
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build_e_testes:
+    runs-on: ubuntu-latest
+    outputs:
+      build_ok: ${{ steps.gate.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Tipos (svelte-check + TypeScript estrito)
+        run: npm run check
+
+      - name: Testes (109 casos — domínio, repositório, migração, bloco H)
+        run: npm run test
+
+      - name: Build de produção
+        run: npm run build
+
+      - id: gate
+        run: echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+  publicar_preview:
+    if: github.event_name == 'pull_request'
+    needs: build_e_testes
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COMPRA_PLANEJADA }}
+          projectId: compra-planejada
+          # canal automático por PR: expira sozinho em 7 dias, sem acumular lixo
+          expires: 7d
+
+  publicar_producao:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build_e_testes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COMPRA_PLANEJADA }}
+          projectId: compra-planejada
+          channelId: live
