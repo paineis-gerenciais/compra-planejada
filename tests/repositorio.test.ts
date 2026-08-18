@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryRepository } from '../src/lib/data/MemoryRepository';
 import { migrarV4, aplicarMigracao } from '../src/lib/data/migration';
 import {
-  adicionarItens, criarLista, finalizarCompra, moverItem,
+  adicionarItens, criarLista, finalizarCompra, moverItem, moverItemParaIndice,
   moverListaDeEscopo, alternarComprado, carregarPendentes, registrarLoja
 } from '../src/lib/servicos/listas';
 import {
@@ -75,6 +75,36 @@ describe('Repositório · listas e itens', () => {
     await moverItem(repo, itens[2]!, itens, -1);
     const depois = await repo.items.getItems(l.id);
     expect(depois.map((i) => i.name)).toEqual(['A', 'C', 'B']);
+  });
+
+  it('arrastar e soltar (moverItemParaIndice) move para o índice exato', async () => {
+    const l = await listaCom(['A', 'B', 'C', 'D']);
+    const itens = await repo.items.getItems(l.id);
+    // arrasta "A" (índice 0) para o índice 2 — a ordem alvo já vem pronta do cliente
+    const novaOrdem = [itens[1]!, itens[2]!, itens[0]!, itens[3]!];
+    await moverItemParaIndice(repo, itens[0]!, novaOrdem);
+    const depois = await repo.items.getItems(l.id);
+    expect(depois.map((i) => i.name)).toEqual(['B', 'C', 'A', 'D']);
+  });
+
+  it('arrastar para o topo do grupo funciona (sem vizinho anterior)', async () => {
+    const l = await listaCom(['A', 'B', 'C']);
+    const itens = await repo.items.getItems(l.id);
+    const novaOrdem = [itens[2]!, itens[0]!, itens[1]!];
+    await moverItemParaIndice(repo, itens[2]!, novaOrdem);
+    const depois = await repo.items.getItems(l.id);
+    expect(depois.map((i) => i.name)).toEqual(['C', 'A', 'B']);
+  });
+
+  it('só o item arrastado é reescrito — os vizinhos não mudam de updatedAt', async () => {
+    const l = await listaCom(['A', 'B', 'C']);
+    const antes = await repo.items.getItems(l.id);
+    const carimboB = antes[1]!.updatedAt;
+    await new Promise((r) => setTimeout(r, 2));
+    const novaOrdem = [antes[2]!, antes[0]!, antes[1]!];
+    await moverItemParaIndice(repo, antes[2]!, novaOrdem);
+    const depois = await repo.items.getItems(l.id);
+    expect(depois.find((i) => i.name === 'B')!.updatedAt).toBe(carimboB);
   });
 });
 
