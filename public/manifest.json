@@ -1,6 +1,6 @@
 {
-  "name": "Compra Planejada",
-  "short_name": "Compra Planejada",
+  "name": "Compras",
+  "short_name": "Compras",
   "description": "Listas de compras com sincronização entre aparelhos, modo compra e histórico de preços.",
   "start_url": "/",
   "scope": "/",

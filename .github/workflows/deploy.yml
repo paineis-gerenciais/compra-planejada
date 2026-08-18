@@ -95,3 +95,26 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COMPRA_PLANEJADA }}
           projectId: compra-planejada
           channelId: live
+
+  publicar_regras_firestore:
+    # Roda em TODO push em main, sem filtro de `paths`. O filtro por
+    # caminho de arquivo depende de o GitHub conseguir comparar contra um
+    # commit anterior na mesma branch, e esse comportamento varia conforme
+    # como a branch nasceu (primeiro push, squash-merge, etc.) — é um dos
+    # cantos mais inconsistentes do GitHub Actions. Publicar as regras
+    # sempre é mais simples e não tem efeito colateral: reenviar o mesmo
+    # conteúdo de regras é praticamente instantâneo e idempotente.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build_e_testes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install -g firebase-tools
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COMPRA_PLANEJADA }}
+      - run: firebase deploy --only firestore:rules,firestore:indexes --project compra-planejada --non-interactive

@@ -13,6 +13,7 @@ import {
 import { ordenarCategorias, aisleKey } from '../src/lib/domain/aisles';
 import { proximaOcorrencia, renovar } from '../src/lib/domain/recurrence';
 import { gerarCodigoConvite, conviteValido, iniciais, corDe, podeEditar, papelNa } from '../src/lib/domain/roles';
+import { textoDaLista } from '../src/lib/domain/share';
 import { mergeItem, mergeItems, mergeRecord, isDead } from '../src/lib/domain/merge';
 import { resumoDePreco, precosDaCompra, gastosPorCompra } from '../src/lib/domain/prices';
 import type { Item, PriceEntry, Purchase, Household, ShoppingList, ItemStat } from '../src/lib/domain/types';
@@ -374,5 +375,44 @@ describe('B6 · sugestões de recompra', () => {
       comum: { name:'Comum', category:'', unit:'', lastPrice:null, count:20, lastUsed: agora - 10*86400000 }
     };
     expect(sugestoesDeRecompra(stats, [])[0]!.name).toBe('Comum');
+  });
+});
+
+describe('Compartilhar · textoDaLista', () => {
+  const lista = { id: 'L1', owner, name: 'Mercado', baseName: 'Mercado',
+    recurring: { enabled: false, frequencyDays: 7 }, location: null,
+    categoryOrder: [], createdAt: 1, updatedAt: 1 };
+
+  it('marca itens comprados e pendentes de forma diferente', () => {
+    const itens = [
+      item({ name: 'Arroz', category: 'Mercearia', bought: true }),
+      item({ name: 'Feijão', category: 'Mercearia', bought: false })
+    ];
+    const t = textoDaLista(lista, itens);
+    expect(t).toContain('[x] Arroz');
+    expect(t).toContain('[ ] Feijão');
+  });
+
+  it('agrupa por categoria, "Sem categoria" primeiro', () => {
+    const itens = [
+      item({ name: 'Tomate', category: 'Hortifruti' }),
+      item({ name: 'Guardanapo', category: '' })
+    ];
+    const t = textoDaLista(lista, itens);
+    expect(t.indexOf('Sem categoria')).toBeLessThan(t.indexOf('Hortifruti'));
+  });
+
+  it('lista vazia não quebra', () => {
+    expect(() => textoDaLista(lista, [])).not.toThrow();
+    expect(textoDaLista(lista, [])).toContain('vazia');
+  });
+
+  it('inclui contagem de progresso', () => {
+    const itens = [item({ bought: true }), item({ bought: false })];
+    expect(textoDaLista(lista, itens)).toContain('1 de 2 itens');
+  });
+
+  it('nome da lista aparece no início', () => {
+    expect(textoDaLista(lista, [])).toContain('Mercado');
   });
 });

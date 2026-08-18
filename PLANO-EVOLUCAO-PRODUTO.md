@@ -1,9 +1,168 @@
 # Compra Planejada — Plano de Evolução do Produto
 ### Parecer de consultoria multidisciplinar (UX · Engenharia · Produto · Qualidade)
 
-**Revisão 5** — publicação migrada de GitHub Pages para Firebase Hosting; app renomeado para Compra Planejada; repositório novo (compra-planejada)
-**Base:** v4 em produção (~4.400 linhas, 92 testes) + v5 completa (Svelte + TypeScript, 4.693 linhas, 109 testes, build 232 KB gzip)
+**Revisão 7** — correção definitiva do bug "Gerenciar" (o problema era estrutural, não só o parâmetro descartado); mover lista entre escopos, ordem de corredores e edição avançada de item ganharam interface; PDF e compartilhamento (WhatsApp) portados da v4; ícones reais aplicados; workflow duplicado do Firebase CLI diagnosticado
+**Base:** v5 completa (Svelte + TypeScript, 118 testes, build ~238 KB gzip no bundle principal + PDF em chunk lazy de ~177 KB gzip)
 **Data:** agosto de 2026
+
+---
+
+## Funcionalidades — o que existe e o que está planejado
+
+Inventário completo, por área. "✅ Funciona" significa testado e com
+interface acessível ao usuário — não apenas implementado na camada de
+domínio. Onde a lógica existe mas falta interface, isso está dito
+explicitamente, porque essa distinção é exatamente o tipo de coisa que
+gera bugs como os dois desta rodada (nova lista, Gerenciar família): a
+lógica existia, a ponte até o botão não.
+
+### Contas e acesso
+
+| Funcionalidade | Situação |
+|---|---|
+| Login com Google | ✅ |
+| Login com e-mail/senha, com redefinição de senha | ✅ |
+| "Usar sem conta" (tudo local, sem sincronizar) | ✅ |
+| Sincronização em tempo real entre aparelhos (Firestore real) | ✅ |
+| Persistência offline (fila local, sobe ao reconectar) | ✅ |
+| **Onboarding no primeiro acesso** (4 passos, uma vez por aparelho) | ✅ **novo nesta rodada** |
+
+### Listas
+
+| Funcionalidade | Situação |
+|---|---|
+| **Criar lista nova** | ✅ **corrigido nesta rodada** — não existia botão nenhum |
+| Múltiplas listas simultâneas, alternáveis por abas | ✅ |
+| Lista recorrente (1/7/14/30 dias), renovação automática ao finalizar | ✅ |
+| **Indicador de família ativa no cabeçalho** | ✅ **novo nesta rodada** — antes não havia nenhuma indicação visível de qual escopo (pessoal ou qual família) estava ativo |
+| **Mover lista entre pessoal e família** | ✅ **feito nesta rodada** — `ModalMoverLista.svelte`, botão "🔀 Mover lista" |
+| **Ordem dos corredores por mercado** | ✅ **feito nesta rodada** — `ModalOrdemCorredores.svelte`, botão "🧭 Corredores", reordenação por ↑↓ salva por mercado |
+
+### Itens
+
+| Funcionalidade | Situação |
+|---|---|
+| Entrada rápida por texto ("2kg tomate") | ✅ |
+| Entrada em lote (colar várias linhas de uma vez) | ✅ |
+| Ditado por voz | ✅ (onde o navegador suporta) |
+| Categorização automática (dicionário de ~300 produtos br-PT) | ✅ |
+| Consolidação de duplicados (mesma unidade, não comprado) | ✅ |
+| Reordenar itens (botões ↑↓) | ✅ |
+| Marcar/desmarcar comprado | ✅ |
+| Remover item | ✅ |
+| Atribuir item a um membro da família | ✅ |
+| Sugestões de recompra ao criar lista | ✅ |
+| **Edição avançada de item** (unidade por seletor, categoria, preço) | ✅ **feito nesta rodada** — `ModalEditarItem.svelte`, ícone ✎ em cada item |
+
+### Modo compra
+
+| Funcionalidade | Situação |
+|---|---|
+| Tela dedicada, alvo de toque grande, uso com uma mão | ✅ |
+| Wake Lock em três níveis (nativo → vídeo → aviso ao usuário) | ✅ |
+| Ocultar itens já comprados | ✅ |
+| Adicionar item sem sair do modo compra | ✅ |
+| Progresso e total gasto em tempo real | ✅ |
+| Indicador de quem mais está comprando agora (presença) | ✅ |
+
+### Finalizar compra
+
+| Funcionalidade | Situação |
+|---|---|
+| Checkout: valor pago + mercado (ambos puláveis) | ✅ |
+| Comparação com o total estimado | ✅ |
+| Itens pendentes → oferece criar lista nova com eles | ✅ |
+| Lista recorrente → renova automaticamente | ✅ |
+
+### Histórico
+
+| Funcionalidade | Situação |
+|---|---|
+| Lista de compras finalizadas | ✅ |
+| Detalhe de cada compra (itens por categoria, status) | ✅ |
+| Reativar compra (todos os itens ou só os pendentes) | ✅ |
+
+### Preços — inteligência de preço
+
+| Funcionalidade | Situação |
+|---|---|
+| Histórico de preço por item | ✅ |
+| Comparação de preço entre mercados | ✅ |
+| Gráfico de gasto por compra | ✅ |
+| Variação de preço (alta/queda) por item | ✅ |
+| **Leitura de cupom fiscal por foto (OCR)** com revisão manual assistida — nada grava sem confirmação item a item | ✅ |
+| Inflação pessoal (ponderada por frequência de compra) | ✅ |
+| Previsão de recompra (por intervalo médio entre compras) | ✅ |
+| Lista sugerida automaticamente (itens em atraso + frequentes) | ✅ — sempre como candidatos, nunca grava sozinha |
+| Validação de H3 (OCR) com cupons reais de mercado | ⬜ hoje só testado contra simulação; critério de sucesso (≥80%) verificado só em teste automatizado |
+
+### Colaboração familiar
+
+| Funcionalidade | Situação |
+|---|---|
+| Criar família | ✅ |
+| Convidar por código de 8 caracteres, verificado no servidor | ✅ |
+| Convite já criado com o papel definido (editor ou só leitura) | ✅ |
+| Revogar convite | ✅ |
+| Gerenciar membros (mudar papel, remover) | ✅ **corrigido de vez nesta rodada** — a correção anterior tratou o sintoma (argumento descartado); esta corrigiu a causa estrutural: o botão dependia de a família já estar ativa como escopo. Agora tem gerenciamento direto em cada linha da lista de famílias |
+| Presença em tempo real (quem está no app, quem está comprando) | ✅ |
+| Sair da família / excluir família | ✅ |
+| Três papéis (responsável/editor/só leitura) com bloqueio real na interface e nas regras | ✅ |
+
+### PWA e instalação
+
+| Funcionalidade | Situação |
+|---|---|
+| Instalável como app | ✅ |
+| Funciona offline | ✅ (service worker registrado — corrigido na rodada anterior) |
+| Sincronização automática ao reconectar | ✅ |
+| Atalho de "Nova lista" pelo ícone do app instalado | ✅ |
+| **Nome padronizado como "Compras"** no manifest (nome/apelido) | ✅ **novo nesta rodada** |
+| **Ícone real do app** | ⬜ **pendente** — ver nota abaixo |
+
+> **Nota sobre o ícone:** nas rodadas anteriores, o arquivo original
+> nunca tinha sido enviado a esta consultoria — só existia como
+> referência em texto. Nesta rodada os arquivos foram enviados e
+> aplicados diretamente, substituindo o ícone gerado como placeholder.
+
+### Qualidade e operação
+
+| Funcionalidade | Situação |
+|---|---|
+| 113 testes automatizados (domínio, repositório, migração, bloco H, onboarding) | ✅ |
+| Portão de qualidade no CI (svelte-check + testes) antes de qualquer deploy | ✅ |
+| Canal de preview isolado por Pull Request | ✅ |
+| Deploy automático em produção no merge | ✅ |
+| Publicação de regras do Firestore em todo push (sem depender de filtro de caminho) | ✅ |
+| Testes de integração contra o emulador do Firestore | ⬜ não iniciado |
+| Monitoramento de erro em produção (Sentry ou equivalente) | ⬜ não iniciado |
+| LGPD (política de privacidade, exportação/exclusão de conta) | ⬜ não iniciado |
+
+### Não portado da v4 (sem bloquear uso)
+
+| Funcionalidade | Situação |
+|---|---|
+| **Geração de PDF** | ✅ **feito nesta rodada** — formato de cupom, biblioteca carregada só quando usada (chunk separado, não pesa no carregamento inicial) |
+| **Compartilhar lista como texto (WhatsApp)** | ✅ **feito nesta rodada** — Web Share API com fallback de copiar para a área de transferência |
+| Mapa (buscar mercado / rota) | ⬜ ainda não portado |
+
+Nenhum item pendente afeta sincronização ou dados.
+
+### Planejado — próximos blocos do roadmap
+
+- **Bloco I (lojas):** Capacitor empacotando o PWA para as lojas de
+  aplicativo, notificações push de verdade (hoje só funcionam com o app
+  aberto em segundo plano), acesso nativo à câmera para o OCR.
+- **Bloco J (qualidade e operação):** testes de integração com o
+  emulador do Firestore, testes end-to-end (Playwright), monitoramento de
+  erro, analytics respeitoso de privacidade, LGPD completa, feature
+  flags, revisão do tamanho do bundle (~235 KB gzip, majoritariamente o
+  SDK do Firebase).
+- **Interfaces para lógica já existente:** tela de mover lista entre
+  pessoal e família, tela de configurar a ordem dos corredores, edição
+  avançada de item.
+- **Decisão de negócio pendente:** limite de membros por família no
+  plano grátis, antes de existirem famílias grandes em uso.
 
 ---
 
@@ -40,7 +199,47 @@ migração.
 
 ## 1. O que foi executado nesta rodada
 
-### ✅ Bloco E — Reestruturação técnica (completa)
+### ✅ Revisão 7 — bug estrutural do "Gerenciar", 4 funcionalidades novas, ícones reais
+
+| Item | Entrega |
+|---|---|
+| Bug do "Gerenciar" (persistiu após a correção anterior) | Causa raiz real: o botão só existia dentro da família **já ativa como escopo** — trocar de família fechava o caminho antes de chegar lá. Corrigido com estado dedicado (`familiaEmGerenciamento`) e assinatura própria ao Firestore, independente do escopo em uso; botão de gerenciar agora fica em cada linha da lista de famílias |
+| CI: check "Deploy to Firebase Hosting on PR" falhando | Diagnóstico: workflow duplicado, gerado automaticamente pelo `firebase init hosting:github` (provavelmente por ter respondido "sim" à pergunta de criar workflows numa execução anterior do comando). Runbook atualizado com o passo de remoção |
+| Mover lista entre pessoal e família | `ModalMoverLista.svelte` — a lógica já existia testada desde o bloco F |
+| Ordem dos corredores por mercado | `ModalOrdemCorredores.svelte` — reordenação por ↑↓, salva por chave de mercado |
+| Edição avançada de item | `ModalEditarItem.svelte` — unidade por seletor, categoria, preço |
+| Geração de PDF | `servicos/pdf.ts`, jsPDF carregado sob demanda (chunk separado, ~177 KB gzip, não pesa no carregamento inicial) |
+| Compartilhar como texto | `domain/share.ts` (função pura, testada) + `servicos/compartilhar.ts` (Web Share API com fallback de clipboard) |
+| Ícones do app | Substituídos pelos arquivos enviados — fundo verde sólido até a borda, servem também como maskable sem gerar variante extra |
+
+Build após as mudanças: 0 erros de tipo, **118 testes** (eram 113 — 5
+novos, cobrindo o formato do texto compartilhado), build limpo.
+
+### ✅ Revisão 6 — correções de UX e onboarding
+
+| Item | Entrega |
+|---|---|
+| Botão de nova lista | `ModalNovaLista.svelte` — nome, recorrência, frequência; botão tracejado ao fim das abas |
+| Bug do "Gerenciar" | Causa raiz: `abrirGerenciarFamilia` descartava o argumento recebido, dependia de estado assíncrono que nem sempre chegava a tempo. Corrigido para usar o valor recebido diretamente |
+| Indicador de família ativa | Pílula no cabeçalho (avatar + nome do escopo), sempre visível, abre o seletor ao tocar |
+| Onboarding no primeiro acesso | `TelaOnboarding.svelte`, 4 passos, `onboarding.ts` testável (4 testes novos), guardado por aparelho no `localStorage` |
+| Nome do PWA | Padronizado para "Compras" no `manifest.json` (`name`/`short_name`) |
+| Ícone do PWA | **Não resolvido** — arquivo original nunca foi enviado nesta consultoria; permanece o ícone gerado como substituto |
+| Limpeza técnica | `<script context="module">` obsoleto removido de `TelaHistorico.svelte` |
+
+**Achado ao revisar:** a linha do plano que dizia "mover lista entre
+pessoal e família — feito" estava incorreta. A lógica de serviço existe e
+está testada desde o bloco F, mas nunca foi ligada a nenhum botão — é a
+mesma classe de problema dos dois bugs corrigidos nesta rodada (lógica
+pronta, ponte até a interface faltando). Corrigido no registro; a
+correção da interface em si fica para uma próxima rodada.
+
+Build após as mudanças: 0 erros de tipo, **113 testes** (eram 109 — os 4
+novos do onboarding), build limpo.
+
+### ✅ Blocos E/F/G/H — histórico de revisões anteriores
+
+#### Bloco E — Reestruturação técnica (completa)
 
 Tudo o que faltava nas revisões 2 e 3 foi entregue:
 
@@ -71,7 +270,7 @@ Firestore ainda não tinha sido escrito. Ainda assim, o Tesseract (OCR) está
 em chunk separado, carregado só quando a câmera é aberta, então não onera
 quem nunca usa o recurso.
 
-### ✅ Bloco F — Modelo de dados de verdade (completo)
+#### Bloco F — Modelo de dados de verdade (completo)
 
 O modelo granular está publicável e funcional:
 
@@ -90,7 +289,7 @@ Nenhuma coleção nova foi necessária para H3/H4/H5 — leitura de cupom grava
 em `lists`/`items`/`priceEntries` já existentes; inflação e previsão leem
 `priceEntries` e `users/{uid}.itemStats`.
 
-### ✅ Bloco H — Inteligência de preço, completo (H1 a H5)
+#### Bloco H — Inteligência de preço, completo (H1 a H5)
 
 | | Entrega |
 |---|---|
@@ -173,59 +372,76 @@ dois itens novos: testes de integração e revisão de bundle).
 
 | # | Pendência | Situação |
 |---|---|---|
-| ~~1~~ | ~~Mover lista entre pessoal e família~~ | ✅ feito (bloco F) |
+| ~~1~~ | ~~Mover lista entre pessoal e família sem interface~~ | ✅ **feito nesta rodada** — `ModalMoverLista.svelte`. A revisão 6 tinha reaberto este item ao notar que a lógica existia sem botão; agora tem os dois. |
 | 2 | Convite direto como "só leitura" na interface da v4 | resolvido na v5; não vale portar para trás |
 | ~~3~~ | ~~Revogar convite~~ | ✅ feito (bloco F) |
 | 4 | Modo Resumida/Completa como decisão manual | aberta — a v5 não tem mais os dois modos: a interface é única e mais enxuta por padrão, o que meio que resolve isso por outro caminho. Vale confirmar em uso se a simplificação foi suficiente. |
 | ~~5~~ | ~~Scroll perdido no re-render~~ | ✅ resolvido estruturalmente na v5 |
 | ~~6~~ | ~~Wake Lock no iOS~~ | ✅ feito (portado para `ModoCompra.svelte`) |
 | 7 | Categoria automática não cobre itens regionais | aberta, baixo custo, baixo impacto |
-| **8** | **Novo:** `FirestoreRepository` sem teste de integração próprio | aberta — ver bloco J |
-| **9** | **Novo:** bundle de 232 KB gzip, sem code-splitting ainda | aberta — ver bloco J |
+| 8 | `FirestoreRepository` sem teste de integração próprio | aberta — ver bloco J |
+| 9 | Bundle de ~238 KB gzip no chunk principal, sem code-splitting da autenticação/Firestore ainda (PDF já ficou isolado nesta rodada) | aberta — ver bloco J |
+| ~~10~~ | ~~Sem botão para criar lista nova~~ | ✅ feito (revisão 6) — `ModalNovaLista.svelte` + botão no cabeçalho |
+| ~~11~~ | ~~Botão "Gerenciar" família não funcionava~~ | ✅ **corrigido de vez nesta rodada** — a correção da revisão 6 tratou o sintoma; esta corrigiu a causa estrutural (botão preso ao escopo ativo) |
+| ~~12~~ | ~~Sem indicador de família ativa~~ | ✅ feito (revisão 6) — pílula de escopo no cabeçalho |
+| ~~13~~ | ~~Sem onboarding no primeiro acesso~~ | ✅ feito (revisão 6) — `TelaOnboarding.svelte`, 4 passos, uma vez por aparelho |
+| ~~14~~ | ~~Nome do PWA divergente do nome do produto~~ | ✅ feito (revisão 6) — manifest padronizado para "Compras" |
+| ~~15~~ | ~~Ícone real do PWA~~ | ✅ **feito nesta rodada** — arquivos enviados aplicados diretamente |
+| ~~16~~ | ~~Ordem dos corredores sem tela~~ | ✅ **feito nesta rodada** — `ModalOrdemCorredores.svelte` |
+| **17** | **Novo:** geração de PDF | ✅ **feito nesta rodada** |
+| **18** | **Novo:** compartilhar lista como texto | ✅ **feito nesta rodada** |
+| **19** | **Novo:** mapa (buscar mercado / rota) | aberta, não portado da v4 |
+| **20** | **Novo:** workflow duplicado do Firebase CLI pode reaparecer se `firebase init hosting:github` for rodado de novo respondendo "sim" à criação de workflows | aberta — atenção documentada no runbook |
 
 ---
 
 ## 4. Recomendação de sequência
 
-A recomendação da revisão 3 — terminar o porte antes de abrir bloco novo —
-foi cumprida integralmente, incluindo H3/H4/H5, que não estavam no escopo
-mínimo de paridade mas foram adiantados junto.
+O corte direto já aconteceu (revisão 5) e o app está em produção. As duas
+rodadas seguintes (6 e 7) foram de estabilização pós-corte: bugs reais de
+uso descobertos com o produto no ar (nova lista ausente, Gerenciar
+quebrado duas vezes até a causa estrutural ser corrigida) e o fechamento
+de funcionalidades que existiam só pela metade (lógica pronta, interface
+faltando) — mover lista, corredores, edição de item — mais duas
+funcionalidades da v4 que ainda não tinham sido portadas (PDF,
+compartilhar).
 
-**A recomendação desta revisão:** antes de qualquer bloco novo (I ou J),
-faça a **Parte 5 do runbook** — o corte — com um grupo pequeno primeiro (você
-e talvez uma família), não com todo mundo de uma vez. Os 109 testes
-automatizados dão confiança na lógica; o que eles não substituem é uso real
-em aparelho real, com rede real, por gente que não escreveu o código. Um
-corte pequeno e observado por uma semana informa se o bloco J (testes de
-integração, revisão de bundle) deveria vir antes ou depois de abrir portas
-para todo mundo.
+**A recomendação desta revisão:** com a paridade de funcionalidades
+essencialmente completa (só o mapa falta), o próximo passo de maior valor
+deixa de ser "portar mais uma tela" e passa a ser **observação de uso
+real por mais tempo**, antes de abrir os blocos I ou J. O padrão dos bugs
+desta rodada — funcionalidade que "existia" no código mas não tinha
+ponte até a interface — só aparece testando com gente de verdade, não em
+teste automatizado. Vale um período de uso ativo (você e famílias reais)
+antes do próximo bloco de escopo maior.
 
 ```
 ✅ FEITO    Fase 3 completa · G · H1–H5 · E · F
             Todas as telas principais portadas e testadas
+            Corte direto para produção (revisão 5)
+            Estabilização pós-corte: nova lista, Gerenciar (revisão 6 e 7)
+            Mover lista, corredores, edição de item, PDF, compartilhar (revisão 7)
+            Ícones reais aplicados
 
-🔄 AGORA    Corte controlado (runbook Partes 3–5), começando pequeno
-            Validação de H3 com cupons reais (não-código)
+🔄 AGORA    Período de uso real antes do próximo bloco de escopo maior
+            Validação de H3 (OCR) com cupons reais (não-código)
+            Atenção ao workflow duplicado do Firebase CLI (item 20)
 
-DEPOIS      Porte das telas remanescentes (mapa, PDF, compartilhar) 1–2 blocos
+DEPOIS      Mapa (buscar mercado / rota)                      ~1 bloco
             J · testes de integração, bundle, LGPD, push    5–6 blocos
             I · lojas (Capacitor)                            3–4 blocos
 ```
 
-> **Atualização:** a recomendação de "corte pequeno primeiro" foi
-> substituída por decisão explícita do responsável pelo projeto — corte
-> direto, todo mundo migra de uma vez. Dois bugs de publicação foram
-> corrigidos no processo (manifest.json duplicado, service worker nunca
-> registrado), e a v4 foi arquivada em branch própria antes da
-> sobrescrita — ver `IMPLANTACAO.md`.
+### 4.1 Framework: Svelte — terceira confirmação
 
-### 4.1 Framework: Svelte — segunda confirmação
-
-A escolha continua se pagando: mesmo com a integração completa do Firebase,
-`svelte-check` fechou em zero erros em cada etapa desta rodada — 12 arquivos
-novos, nenhum retrabalho de tipo. O aumento de bundle (27,7 KB → 232 KB
-gzip) não é sobre o framework; é sobre o SDK do Firebase, que pesaria o
-mesmo em qualquer stack.
+A escolha continua se pagando: mesmo depois de quatro rodadas de correções
+e funcionalidades novas pós-corte, `svelte-check` fechou em zero erros em
+cada uma — nenhum retrabalho de tipo, nenhuma surpresa de reatividade.
+O jsPDF desta rodada é o primeiro exemplo prático do padrão de
+lazy-loading (já usado para o Tesseract do OCR) se replicando sem
+fricção: a biblioteca mais pesada do projeto até agora (~177 KB gzip)
+ficou isolada em chunk próprio sem nenhuma configuração extra além do
+`import()` dinâmico.
 
 ---
 
@@ -289,19 +505,25 @@ verdade, porque não há mais nada "fictício" na lista de recursos pagos.
    Fase 4 · H1–H5 inteligência de preço completa
    Fase 4 · E reestruturação técnica completa
    Fase 4 · F modelo de dados granular completo, com Firestore real
-   Todas as pendências críticas (1, 3, 5, 6)
+   Corte direto para produção
+   Estabilização pós-corte: nova lista, Gerenciar (corrigido de vez),
+   indicador de família ativa, onboarding, ícones reais
+   Mover lista, ordem de corredores, edição de item — interface completa
+   PDF e compartilhamento (WhatsApp) portados da v4
 
 🔄 AGORA
-   Corte controlado, começando pequeno
-   Validação de H3 com cupons reais
+   Uso real por um período antes do próximo bloco de escopo maior
+   Validação de H3 (OCR) com cupons reais
+   Atenção ao workflow duplicado do Firebase CLI, se reaparecer
 
 ⬜ DEPOIS
-   Telas remanescentes (mapa, PDF, compartilhar)
+   Mapa (buscar mercado / rota) — única tela ainda não portada da v4
    J · testes de integração, bundle, LGPD, push
    I · lojas
 ```
 
-**Em uma frase:** a v5 já faz tudo o que a v4 faz de essencial, mais o
-diferencial de preço completo — H1 a H5 — e o próximo passo não é mais
-construir, é usar em produção com cautela e medir o que só o uso real
-revela.
+**Em uma frase:** a paridade de funcionalidades com a v4 está
+essencialmente completa — falta só o mapa — e os bugs desta rodada
+mostram que o próximo passo de maior valor não é mais escrever código
+novo, é observar o produto em uso real, porque foi assim que "existe no
+código mas ninguém consegue alcançar" apareceu duas vezes seguidas.

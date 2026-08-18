@@ -8,9 +8,10 @@
   import { MemoryRepository } from './lib/data/MemoryRepository';
   import { FirestoreRepository } from './lib/data/FirestoreRepository';
   import type { Repository } from './lib/data/repository';
-  import type { Item, ShoppingList, OwnerRef } from './lib/domain/types';
+  import type { Item, ShoppingList, OwnerRef, Household } from './lib/domain/types';
   import { initFirebase, observarSessao, sair as sairDaConta } from './lib/auth/firebase';
   import { migrarV4, aplicarMigracao } from './lib/data/migration';
+  import { corDe, iniciais } from './lib/domain/roles';
 
   import Recibo from './lib/ui/Recibo.svelte';
   import EntradaRapida from './lib/ui/EntradaRapida.svelte';
@@ -24,6 +25,17 @@
   import TelaCupomOCR from './lib/ui/TelaCupomOCR.svelte';
   import TelaInsights from './lib/ui/TelaInsights.svelte';
   import ModalConfirmarPendentes from './lib/ui/ModalConfirmarPendentes.svelte';
+  import ModalNovaLista from './lib/ui/ModalNovaLista.svelte';
+  import TelaOnboarding from './lib/ui/TelaOnboarding.svelte';
+  import ModalMoverLista from './lib/ui/ModalMoverLista.svelte';
+  import ModalOrdemCorredores from './lib/ui/ModalOrdemCorredores.svelte';
+  import ModalEditarItem from './lib/ui/ModalEditarItem.svelte';
+
+  import { deveMostrarOnboarding, marcarOnboardingVisto } from './lib/servicos/onboarding';
+  import { gerarPdfDaLista } from './lib/servicos/pdf';
+  import { compartilharLista } from './lib/servicos/compartilhar';
+  import { aisleKey, ordenarCategorias } from './lib/domain/aisles';
+  import { CATEGORIAS_PADRAO } from './lib/domain/categorize';
 
   import {
     adicionarItens, alternarComprado, criarLista, moverItem,
@@ -44,14 +56,25 @@
   let carregandoSessao = $state(!!firebase);
 
   // ---------------- modais visíveis ----------------
-  let modalAberto = $state<null | 'checkout' | 'historico' | 'precos' | 'familias' | 'gerenciarFamilia' | 'ocr' | 'insights' | 'finalizarPendentes'>(null);
+  let modalAberto = $state<null | 'checkout' | 'historico' | 'precos' | 'familias' | 'gerenciarFamilia' | 'ocr' | 'insights' | 'finalizarPendentes' | 'novaLista' | 'moverLista' | 'ordemCorredores' | 'editarItem'>(null);
   let itensParaFinalizar = $state<Item[]>([]);
   let dadosCheckout: { store: string | null; actualTotal: number | null } | null = $state(null);
   let convitesDaCasa = $state<ConviteVisivel[]>([]);
+  let mostrarOnboarding = $state(false);
+  let itemEmEdicao = $state<Item | null>(null);
+  let toast = $state('');
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function mostrarToast(msg: string): void {
+    toast = msg;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast = ''; }, 2600);
+  }
 
   let desassinarItens: (() => void) | null = null;
 
   onMount(() => {
+    mostrarOnboarding = deveMostrarOnboarding();
     if (!firebase) {
       app.usuario = { uid: 'local', nome: 'Você', email: null };
       app.conectar(memRepo);
@@ -122,6 +145,14 @@
     return app.casaAtual?.members[uid]?.name ?? 'alguém';
   };
 
+  /** PENDÊNCIA RESOLVIDA: não havia nenhuma indicação de qual família (ou
+   *  "Minhas listas") está ativa no momento — só um ícone que abria o
+   *  seletor às cegas. Agora fica sempre visível no cabeçalho. */
+  const corDeEscopo = $derived(
+    app.escopo.owner.kind === 'household' ? corDe(app.escopo.owner.id) : corDe(app.usuario?.uid ?? 'local')
+  );
+  const iniciaisDoEscopo = $derived(iniciais(app.escopo.nome));
+
   async function aoAdicionar(entradas: Parameters<typeof adicionarItens>[3]) {
     const lista = app.listaAtiva;
     if (!lista) return;
@@ -131,6 +162,83 @@
   const aoRemover = (i: Item) => repo.items.deleteItem(i.listId, i.id);
   const aoMover = (i: Item, d: -1 | 1) =>
     moverItem(repo, i, app.itensDaAtiva.filter((x) => x.category === i.category), d);
+
+  /** BUG CORRIGIDO: não existia nenhum jeito de criar uma segunda lista —
+   *  a `.abas` do cabeçalho só listava as que já existiam. */
+  async function aoCriarLista(nome: string, recorrente: boolean, frequenciaDias: number) {
+    const lista = criarLista(app.escopo.owner, nome, recorrente, frequenciaDias);
+    await repo.lists.createList(lista);
+    app.listaAtivaId = lista.id;
+    modalAberto = null;
+  }
+
+  /** NOVO: mover lista entre pessoal e família — a lógica já existia
+   *  testada desde o bloco F; faltava só a interface. */
+  async function aoMoverLista(destino: OwnerRef, nomeDestino: string) {
+    const lista = app.listaAtiva;
+    if (!lista) return;
+    await moverListaDeEscopo(repo, lista, destino);
+    modalAberto = null;
+    mostrarToast(`Lista movida para ${nomeDestino}`);
+  }
+
+  /** NOVO: ordem dos corredores por mercado — mesma situação: lógica já
+   *  em uso para EXIBIR a ordem salva, faltava a tela para DEFINI-la. */
+  function abrirOrdemCorredores(): void {
+    modalAberto = 'ordemCorredores';
+  }
+  async function aoSalvarOrdemCorredores(ordem: string[]) {
+    const lista = app.listaAtiva;
+    if (!lista || !app.usuario) return;
+    const chave = aisleKey(lista);
+    const atuais = app.perfil?.aisleOrders ?? {};
+    const novo = { ...atuais, [chave]: { key: chave, order: ordem, updatedAt: Date.now() } };
+    await repo.profiles.updateProfile(app.usuario.uid, { aisleOrders: novo });
+    modalAberto = null;
+    mostrarToast('Ordem salva');
+  }
+
+  /** NOVO: edição avançada de item — unidade por seletor, categoria,
+   *  preço. A entrada rápida cobre o caso comum; isto cobre o resto. */
+  function abrirEdicaoItem(item: Item): void {
+    itemEmEdicao = item;
+    modalAberto = 'editarItem';
+  }
+  async function aoSalvarEdicaoItem(patch: Partial<Item>) {
+    if (!itemEmEdicao) return;
+    await repo.items.updateItem(itemEmEdicao.listId, itemEmEdicao.id, patch);
+    modalAberto = null;
+    itemEmEdicao = null;
+  }
+  async function aoExcluirDoEditor() {
+    if (!itemEmEdicao) return;
+    await repo.items.deleteItem(itemEmEdicao.listId, itemEmEdicao.id);
+    modalAberto = null;
+    itemEmEdicao = null;
+  }
+
+  /** NOVO: geração de PDF, no formato de cupom. */
+  async function aoGerarPdf() {
+    const lista = app.listaAtiva;
+    if (!lista) return;
+    try {
+      await gerarPdfDaLista(lista, app.itensDaAtiva);
+    } catch (e) {
+      console.error('Erro ao gerar PDF', e);
+      mostrarToast('Não foi possível gerar o PDF');
+    }
+  }
+
+  /** NOVO: compartilhar como texto — Web Share API (WhatsApp aparece no
+   *  seletor nativo do celular) com fallback de copiar para a área de
+   *  transferência em navegadores sem suporte (a maioria no desktop). */
+  async function aoCompartilhar() {
+    const lista = app.listaAtiva;
+    if (!lista) return;
+    const r = await compartilharLista(lista, app.itensDaAtiva);
+    if (r.metodo === 'clipboard') mostrarToast('Lista copiada — cole no WhatsApp');
+    else if (r.metodo === 'erro') mostrarToast('Não foi possível compartilhar');
+  }
 
   // ---------------- finalizar compra ----------------
   /* C4/H1 na v5: se sobrar item pendente e a lista NÃO for recorrente,
@@ -189,34 +297,65 @@
     if (r.ok) await aoEscolherEscopo({ kind: 'household', id: r.household.id }, r.household.name);
     return r.ok ? { ok: true } : { ok: false, erro: r.erro };
   }
-  async function abrirGerenciarFamilia() {
-    if (!app.casaAtual) return;
-    convitesDaCasa = await listarConvites(repo, app.casaAtual.id);
+  /**
+   * BUG REAL, além do já corrigido: o botão "Gerenciar" usava
+   * `app.casaAtual`, que é o registro ativo da família **atualmente
+   * selecionada como escopo**. Isso amarrava duas coisas que não
+   * deveriam depender uma da outra: "qual lista estou vendo" e "qual
+   * família estou administrando". Na prática, o botão só existia dentro
+   * do escopo já ativo, e trocar de família fechava o modal antes — era
+   * fácil o usuário nunca conseguir alcançar o gerenciamento de uma
+   * família que não fosse a corrente.
+   *
+   * Correção: estado próprio (`familiaEmGerenciamento`), com sua própria
+   * assinatura em tempo real ao Firestore, independente do escopo ativo.
+   * Cada família agora tem um botão de gerenciar direto na lista de
+   * famílias — não precisa mais "entrar" na família primeiro.
+   */
+  let familiaEmGerenciamento = $state<Household | null>(null);
+  let desassinarFamiliaGerenciada: (() => void) | null = null;
+
+  async function abrirGerenciarFamilia(casa: Household) {
+    desassinarFamiliaGerenciada?.();
+    familiaEmGerenciamento = casa; // valor imediato; o listener abaixo mantém atualizado
+    desassinarFamiliaGerenciada = repo.households.watchHousehold(casa.id, (h) => {
+      familiaEmGerenciamento = h;
+    });
+    convitesDaCasa = await listarConvites(repo, casa.id);
     modalAberto = 'gerenciarFamilia';
   }
+
+  function fecharGerenciarFamilia() {
+    desassinarFamiliaGerenciada?.();
+    desassinarFamiliaGerenciada = null;
+    familiaEmGerenciamento = null;
+    modalAberto = null;
+  }
+
   async function aoConvidar(papel: 'editor' | 'viewer') {
-    if (!app.casaAtual || !app.usuario) return '';
-    const inv = await criarConvite(repo, app.casaAtual.id, app.usuario.uid, papel);
-    convitesDaCasa = await listarConvites(repo, app.casaAtual.id);
+    if (!familiaEmGerenciamento || !app.usuario) return '';
+    const inv = await criarConvite(repo, familiaEmGerenciamento.id, app.usuario.uid, papel);
+    convitesDaCasa = await listarConvites(repo, familiaEmGerenciamento.id);
     return inv.code;
   }
   async function aoRevogarConvite(codigo: string) {
     await revogarConvite(repo, codigo);
-    if (app.casaAtual) convitesDaCasa = await listarConvites(repo, app.casaAtual.id);
+    if (familiaEmGerenciamento) convitesDaCasa = await listarConvites(repo, familiaEmGerenciamento.id);
   }
   async function aoMudarPapel(uid: string, papel: any) {
-    if (!app.casaAtual) return;
-    await repo.households.setMemberRole(app.casaAtual.id, uid, papel);
+    if (!familiaEmGerenciamento) return;
+    await repo.households.setMemberRole(familiaEmGerenciamento.id, uid, papel);
   }
   async function aoRemoverMembro(uid: string) {
-    if (!app.casaAtual) return;
-    await repo.households.removeMember(app.casaAtual.id, uid);
+    if (!familiaEmGerenciamento) return;
+    await repo.households.removeMember(familiaEmGerenciamento.id, uid);
   }
   async function aoSairDaFamilia() {
-    if (!app.casaAtual || !app.usuario) return;
-    await sairDaFamilia(repo, app.casaAtual, app.usuario.uid);
-    modalAberto = null;
-    await aoEscolherEscopo({ kind: 'user', id: app.usuario.uid }, 'Minhas listas');
+    if (!familiaEmGerenciamento || !app.usuario) return;
+    const eraEscopoAtivo = app.escopo.owner.kind === 'household' && app.escopo.owner.id === familiaEmGerenciamento.id;
+    await sairDaFamilia(repo, familiaEmGerenciamento, app.usuario.uid);
+    fecharGerenciarFamilia();
+    if (eraEscopoAtivo) await aoEscolherEscopo({ kind: 'user', id: app.usuario.uid }, 'Minhas listas');
   }
 
   // ---------------- histórico / reativar ----------------
@@ -262,9 +401,21 @@
   <div class="carregando">Carregando...</div>
 {:else if !app.usuario && !semConta}
   <TelaLogin auth={firebase!.auth} onUsarSemConta={usarSemConta} />
+{:else if mostrarOnboarding}
+  <TelaOnboarding onConcluir={() => { marcarOnboardingVisto(); mostrarOnboarding = false; }} />
 {:else}
   <header>
     <h1><span class="ponto">●</span> Compra Planejada</h1>
+    <button
+      class="escopoPill"
+      title={semConta ? undefined : 'Trocar entre suas listas e famílias'}
+      disabled={semConta}
+      onclick={() => (modalAberto = 'familias')}
+    >
+      <span class="escopoAvatar" style:background={corDeEscopo}>{iniciaisDoEscopo}</span>
+      <span class="escopoNome">{app.escopo.nome}</span>
+      {#if !semConta}<span class="escopoSeta" aria-hidden="true">▾</span>{/if}
+    </button>
     <div class="linhaTopo">
       <div class="abas" role="tablist" aria-label="Listas">
         {#each app.listas as l (l.id)}
@@ -272,15 +423,15 @@
             class:ativa={l.id === app.listaAtiva?.id}
             onclick={() => (app.listaAtivaId = l.id)}>{l.name}</button>
         {/each}
+        {#if app.podeEditar}
+          <button class="novaLista" title="Nova lista" aria-label="Nova lista" onclick={() => (modalAberto = 'novaLista')}>+</button>
+        {/if}
       </div>
       <div class="ferramentas">
         <button title="Preços" onclick={() => (modalAberto = 'precos')}>💰</button>
         <button title="Insights" onclick={() => (modalAberto = 'insights')}>💡</button>
         <button title="Ler cupom" onclick={() => (modalAberto = 'ocr')}>📷</button>
         <button title="Histórico" onclick={() => (modalAberto = 'historico')}>🕘</button>
-        {#if !semConta}
-          <button title="Famílias" onclick={() => (modalAberto = 'familias')}>👨‍👩‍👧</button>
-        {/if}
       </div>
     </div>
   </header>
@@ -298,7 +449,7 @@
         lista={app.listaAtiva} itens={app.itensDaAtiva}
         ordens={app.perfil?.aisleOrders ?? {}} ocultarComprados={app.ocultarComprados}
         podeEditar={app.podeEditar} {nomeDe}
-        onToggle={aoAlternar} onRemover={aoRemover} onMover={aoMover}
+        onToggle={aoAlternar} onRemover={aoRemover} onMover={aoMover} onEditar={abrirEdicaoItem}
       />
       <div class="entrada-area">
         <EntradaRapida onAdicionar={aoAdicionar} conhecidos={app.perfil?.itemStats ?? {}} desabilitado={!app.podeEditar} />
@@ -306,13 +457,46 @@
           <button class="primaria" onclick={abrirModoCompra}>🛒 Modo compra</button>
           <button onclick={abrirFinalizarCompra}>✓ Finalizar compra</button>
         </div>
+        <div class="acoesSecundarias">
+          <button onclick={() => (modalAberto = 'moverLista')}>🔀 Mover lista</button>
+          <button onclick={abrirOrdemCorredores}>🧭 Corredores</button>
+          <button onclick={aoGerarPdf}>🧾 PDF</button>
+          <button onclick={aoCompartilhar}>🔗 Compartilhar</button>
+        </div>
       </div>
     {:else}
       <p class="vazio">Nenhuma lista ainda.</p>
     {/if}
   </main>
 
-  {#if modalAberto === 'checkout'}
+  {#if toast}<div class="toast" role="status">{toast}</div>{/if}
+
+  {#if modalAberto === 'novaLista'}
+    <ModalNovaLista onCriar={aoCriarLista} onFechar={() => (modalAberto = null)} />
+  {:else if modalAberto === 'moverLista' && app.listaAtiva}
+    <ModalMoverLista
+      lista={app.listaAtiva} escopoPessoal={{ kind: 'user', id: app.usuario!.uid }}
+      nomePessoal="Minhas listas" minhasCasas={app.casas}
+      onMover={aoMoverLista} onFechar={() => (modalAberto = null)}
+    />
+  {:else if modalAberto === 'ordemCorredores' && app.listaAtiva}
+    <ModalOrdemCorredores
+      tituloLoja={app.listaAtiva.location?.value ? `no ${app.listaAtiva.location.value}` : 'no mercado'}
+      categorias={ordenarCategorias(
+        [...new Set([...CATEGORIAS_PADRAO, ...app.itensDaAtiva.map((i) => i.category).filter(Boolean)])],
+        app.perfil?.aisleOrders ?? {},
+        app.listaAtiva
+      )}
+      onSalvar={aoSalvarOrdemCorredores} onFechar={() => (modalAberto = null)}
+    />
+  {:else if modalAberto === 'editarItem' && itemEmEdicao}
+    <ModalEditarItem
+      item={itemEmEdicao}
+      categoriasConhecidas={app.itens.map((i) => i.category).filter(Boolean)}
+      onSalvar={aoSalvarEdicaoItem} onExcluir={aoExcluirDoEditor}
+      onFechar={() => { modalAberto = null; itemEmEdicao = null; }}
+    />
+  {:else if modalAberto === 'checkout'}
     <ModalCheckout
       itens={app.itensDaAtiva} lojas={app.perfil?.stores ?? []}
       lojaSugerida={app.listaAtiva?.location?.value ?? ''}
@@ -335,12 +519,12 @@
       onEscolher={aoEscolherEscopo} onCriar={aoCriarFamilia} onEntrar={aoEntrarComConvite}
       onGerenciar={abrirGerenciarFamilia} onFechar={() => (modalAberto = null)}
     />
-  {:else if modalAberto === 'gerenciarFamilia' && app.casaAtual}
+  {:else if modalAberto === 'gerenciarFamilia' && familiaEmGerenciamento}
     <TelaGerenciarFamilia
-      household={app.casaAtual} uid={app.usuario!.uid} souDono={app.casaAtual.ownerUid === app.usuario!.uid}
+      household={familiaEmGerenciamento} uid={app.usuario!.uid} souDono={familiaEmGerenciamento.ownerUid === app.usuario!.uid}
       convites={convitesDaCasa} linkBase={location.origin + location.pathname}
       onConvidar={aoConvidar} onRevogar={aoRevogarConvite} onMudarPapel={aoMudarPapel}
-      onRemover={aoRemoverMembro} onSair={aoSairDaFamilia} onFechar={() => (modalAberto = null)}
+      onRemover={aoRemoverMembro} onSair={aoSairDaFamilia} onFechar={fecharGerenciarFamilia}
     />
   {:else if modalAberto === 'ocr'}
     <TelaCupomOCR onConfirmar={aoConfirmarOcr} onFechar={() => (modalAberto = null)} />
@@ -358,10 +542,30 @@
   header { position: sticky; top: 0; z-index: var(--z-header); background: var(--paper); border-bottom: 1px solid var(--border); padding: var(--sp-3) var(--sp-4); }
   h1 { font-family: var(--font-mono); font-size: var(--fs-lg); letter-spacing: var(--tracking-stamp); margin: 0 0 var(--sp-2); }
   .ponto { color: var(--green); }
+
+  .escopoPill {
+    display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink);
+    border: 1px solid var(--border); border-radius: var(--r-pill); padding: 4px 10px 4px 5px;
+    background: var(--card); margin-bottom: var(--sp-2); min-height: 30px;
+  }
+  .escopoPill:disabled { opacity: 0.7; }
+  .escopoAvatar {
+    width: 19px; height: 19px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8.5px; font-weight: 700; color: #fff;
+  }
+  .escopoNome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+  .escopoSeta { color: var(--ink-light); font-size: 9px; }
+
   .linhaTopo { display: flex; gap: var(--sp-2); align-items: center; }
   .abas { display: flex; gap: var(--sp-2); overflow-x: auto; padding-bottom: 2px; flex: 1; }
   .abas button { font-family: var(--font-mono); font-size: var(--fs-sm); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--card); color: var(--ink-light); white-space: nowrap; min-height: 36px; }
   .abas button.ativa { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .abas button.novaLista {
+    flex-shrink: 0; width: 36px; padding: 0; font-size: 18px; font-weight: 700;
+    color: var(--green); border-color: var(--green); border-style: dashed;
+  }
   .ferramentas { display: flex; gap: 4px; flex-shrink: 0; }
   .ferramentas button { width: 34px; height: 34px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--card); font-size: 15px; }
   main { padding: var(--sp-4); }
@@ -369,5 +573,17 @@
   .acoesLista { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
   .acoesLista button { flex: 1; font-family: var(--font-mono); font-weight: 700; font-size: 13px; padding: 12px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--card); min-height: var(--tap); }
   .acoesLista button.primaria { background: var(--green); color: #fff; border-color: var(--green); }
+  .acoesSecundarias { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
+  .acoesSecundarias button {
+    flex: 1; min-width: 120px; font-family: var(--font-mono); font-size: 11.5px;
+    padding: 9px; border-radius: var(--r-md); border: 1px solid var(--border);
+    background: var(--card); color: var(--ink-light); min-height: 38px;
+  }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--ink); color: var(--paper); font-family: var(--font-mono); font-size: 12.5px;
+    padding: 10px 18px; border-radius: var(--r-pill); z-index: 70; max-width: 90vw; text-align: center;
+    box-shadow: 0 8px 20px -6px rgba(0,0,0,0.4);
+  }
   .vazio { text-align: center; color: var(--ink-light); padding: var(--sp-6); }
 </style>
