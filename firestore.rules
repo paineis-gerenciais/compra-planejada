@@ -150,8 +150,27 @@ service cloud.firestore {
        convite. Por isso qualquer autenticado pode LER um convite específico —
        mas listar a coleção é proibido, então não há como varrer códigos. */
     match /householdInvites/{code} {
-      allow get:  if logado();
-      allow list: if false;
+      allow get: if logado();
+
+      /* BUG CORRIGIDO: era `allow list: if false`, que bloqueava TODA
+         consulta — inclusive a do próprio responsável listando os
+         convites da sua própria família (usada logo depois de "Gerar
+         convite", para mostrar o código gerado). É por isso que o botão
+         parecia não fazer nada: o convite era criado com sucesso, mas a
+         releitura em seguida (para exibir o código) era negada, e a
+         função quebrava no meio antes de mostrar qualquer coisa.
+
+         O Firestore não filtra resultados de list — ele exige que a
+         condição valha para QUALQUER documento que a consulta possa
+         devolver (regras não são filtro). Como o cliente sempre restringe
+         com where('householdId','==',hid), a condição abaixo só permite
+         consultas presas a UMA família específica onde quem pergunta é
+         responsável. Continua impossível enumerar convites de outras
+         famílias: uma consulta sem esse filtro (ou apontando para outro
+         hid) não teria como provar a condição para todo resultado
+         possível, e o Firestore nega a consulta inteira antes de rodar. */
+      allow list: if logado()
+                  && casa(resource.data.householdId).members[meuUid()].role == 'owner';
 
       allow create: if logado()
                     && request.resource.data.createdBy == meuUid()

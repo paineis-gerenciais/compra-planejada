@@ -1,225 +1,333 @@
-# Implantação completa — Compras (revisão com correções críticas)
+# Implantação — correção do convite de família
 
-Passo a passo do zero ao ar, com todos os comandos exatos para o Prompt de
-Comando/PowerShell do Windows. Esta rodada corrige dois problemas que
-afetavam o app **em produção agora** (regras nunca publicadas de verdade, e
-o escopo pessoal consultando um dono que não existe) — por isso a Parte 2
-não é opcional, mesmo que você só queira "aplicar as novidades".
+Este passo a passo não deixa nada implícito: antes de cada comando, uma
+explicação do que ele faz e por quê. Se um passo parecer óbvio, ainda
+assim está explicado — é melhor sobrar contexto do que faltar.
 
 ```
-PARTE 1   Corrigir a permissão da conta de serviço (resolve o Anexo 1)
-PARTE 2   Publicar as regras manualmente agora (resolve o Anexo 2 e o "Gerenciar")
-PARTE 3   Aplicar o código desta rodada
-PARTE 4   Publicar a atualização
-PARTE 5   Verificação completa
+PARTE 1   O que foi corrigido (para você entender o "porquê" antes do "como")
+PARTE 2   Preparar a branch de trabalho
+PARTE 3   Trazer o código novo para a pasta do projeto
+PARTE 4   Verificar que o código está correto antes de publicar
+PARTE 5   Subir a branch e abrir o Pull Request
+PARTE 6   Testar o preview antes de aceitar
+PARTE 7   Mesclar e confirmar em produção
 ```
 
 ---
 
-## Parte 1 — Corrigir a permissão da conta de serviço
+## Parte 1 — O que foi corrigido
 
-**O que estava errado:** o job `publicar_regras_firestore` falhava com
-`403 The caller does not have permission` na chamada a
-`firebaserules.googleapis.com`. A conta de serviço usada pelo GitHub
-Actions foi criada (pelo `firebase init hosting:github`) só com o papel
-**Firebase Hosting Admin** — que publica o site, mas não publica regras do
-Firestore. Faltava um segundo papel na mesma conta.
+**Você relatou:** o botão "Gerar convite" não fazia nada visível ao ser
+clicado.
 
-### 1.1 Encontrar a conta de serviço
+**O que a investigação encontrou — dois problemas, em duas camadas
+diferentes:**
 
-1. [console.cloud.google.com](https://console.cloud.google.com) → selecionar o projeto **compra-planejada**
-2. Menu → **IAM e administrador** → **IAM**
-3. Localizar a conta que tem um nome parecido com
-   `github-action-XXXXXXXXXX@compra-planejada.iam.gserviceaccount.com`
-   (o mesmo nome que apareceu na mensagem de erro anterior, ao rodar
-   `firebase init hosting:github`)
+### Problema 1 — a regra de segurança negava a releitura do convite
 
-### 1.2 Adicionar o papel que falta
+Depois de criar um convite, o app tenta imediatamente reler a lista de
+convites da família, para mostrar o código gerado na tela. Essa
+releitura usava uma **consulta filtrada** (Firestore chama isso de
+"list", diferente de pegar um documento específico por id, que é um
+"get"). A regra de segurança tinha `allow list: if false` — ou seja,
+**nenhuma consulta desse tipo era permitida, para ninguém, nunca**,
+mesmo para o próprio responsável pedindo os convites da própria família.
 
-1. Clicar no ícone de lápis (editar) na linha dessa conta
-2. **Adicionar outro papel**
-3. Buscar e selecionar: **Firebase Rules Admin** (`roles/firebaserules.admin`)
-4. Também adicionar: **Cloud Datastore Index Admin** (`roles/datastore.indexAdmin`) — necessário para publicar `firestore.indexes.json`, um passo que nem chegou a ser tentado porque a etapa anterior (regras) já falhava antes
-5. **Salvar**
+O convite **era criado com sucesso** no banco de dados — só a etapa
+seguinte, de mostrar o código na tela, é que falhava. Por isso o botão
+"parecia" não fazer nada: o trabalho acontecia, mas você nunca via o
+resultado.
 
-- [ ] Conta de serviço agora tem pelo menos três papéis: Firebase Hosting
-      Admin, Firebase Rules Admin, Cloud Datastore Index Admin
+**Correção:** a regra agora permite essa consulta específica, mas só
+quando ela já vem "presa" a uma família onde quem pergunta é o
+responsável — o Firestore garante isso automaticamente, recusando
+qualquer consulta que não consiga provar isso para todo resultado
+possível. Continua impossível para um estranho listar convites de
+famílias que não são dele.
 
-> **Alternativa mais simples, se preferir não gerenciar papéis um a um:**
-> em vez dos três papéis específicos, adicionar um único papel amplo,
-> **Firebase Admin** (`roles/firebase.admin`), que cobre tudo isso e
-> qualquer necessidade futura de CI/CD do projeto. Para um projeto
-> pessoal, é a opção mais simples de manter — menos preciso em termos de
-> privilégio mínimo, mas sem risco de faltar permissão de novo a cada
-> funcionalidade nova.
+### Problema 2 — entrar com um convite (achado ao verificar a camada seguinte)
 
-**Critério de saída:** a conta de serviço tem permissão para publicar
-regras e índices, não só o site.
+Ao investigar o fluxo inteiro do convite (não só criar, também usar), foi
+encontrado um segundo bug: quando alguém tenta **entrar** numa família
+usando um código, o app precisava ler os dados da família antes de
+adicionar essa pessoa como membro — mas a regra de segurança só permite
+ler dados de uma família para quem **já é membro dela**. A pessoa
+entrando ainda não é membro no momento exato dessa leitura, então a
+leitura era negada, e a entrada falhava.
+
+**Correção:** a ordem das operações foi invertida — agora o app escreve
+a nova pessoa como membro primeiro (isso não exige ler antes), e só
+depois lê os dados completos da família, quando ela já é membro de
+verdade e a leitura é permitida.
+
+### Também corrigido, como reforço
+
+Os dois pontos do código que chamavam "criar convite" e "listar
+convites" não tinham tratamento para quando algo dá errado — se uma
+dessas chamadas falhasse, a tela simplesmente não reagia, sem nenhuma
+mensagem. Agora, se algo falhar, aparece um aviso explicando que não foi
+possível gerar o convite, em vez de silêncio.
 
 ---
 
-## Parte 2 — Publicar as regras manualmente agora
+## Parte 2 — Preparar a branch de trabalho
 
-**Por que isso é urgente, não só um passo de rotina:** como o CI nunca
-conseguiu publicar as regras (Parte 1), é bem provável que as regras
-publicadas hoje no Firestore **não sejam a versão do projeto — sejam
-regras antigas, incompletas, ou o padrão restritivo que o Firebase cria
-sozinho.** Isso explica todos os erros do Anexo 2 (`Missing or
-insufficient permissions` em `watchLists`, `watchPrices`, `watchPurchases`,
-`watchMyHouseholds`): o aplicativo pode estar perfeito e ainda assim não
-funcionar, porque o que está de guarda no banco de dados é outra coisa.
+**Por que criar uma branch nova:** cada mudança deve viver na própria
+branch até passar pelos testes automáticos e por um preview real — é
+assim que o projeto evita publicar algo quebrado direto em produção.
+Nomeie a branch pelo que ela faz, não por um número de versão — evita a
+confusão de branches soltas que aconteceu nas rodadas anteriores.
 
-Publicar manualmente, com a sua conta de dono do projeto (que já tem
-todas as permissões), resolve isso **imediatamente**, sem esperar o CI:
+Abra o **PowerShell** (ou Prompt de Comando) e entre na pasta do
+projeto:
 
 ```powershell
 cd "C:\Projetos\Compra Planejada\compra-planejada"
-
-firebase login
-
-firebase use compra-planejada
-
-firebase deploy --only firestore:rules,firestore:indexes --project compra-planejada
 ```
 
-**Saída esperada:**
+`cd` significa "change directory" (trocar de pasta) — sem isso, os
+próximos comandos rodariam na pasta errada.
 
-```
-=== Deploying to 'compra-planejada'...
+Confirme que está na branch `main` e que ela está atualizada, antes de
+criar a branch nova a partir dela:
 
-i  deploying firestore
-i  firestore: reading indexes from firestore.indexes.json...
-i  cloud.firestore: checking firestore.rules for compilation errors...
-✔  cloud.firestore: rules file firestore.rules compiled successfully
-i  firestore: uploading rules firestore.rules...
-i  firestore: deploying indexes...
-✔  firestore: deployed indexes in firestore.indexes.json successfully
-✔  Deploy complete!
+```powershell
+git checkout main
 ```
 
-- [ ] Console do Firebase → **Firestore Database → Regras** → data de
-      publicação atualizada para agora
-- [ ] **Firestore Database → Índices** → todos com status **Ativado**
-      (se aparecer "Compilando", aguardar antes de seguir — pode levar de
-      minutos a algumas horas)
+`git checkout main` troca a pasta de trabalho para o conteúdo da branch
+`main` — importante fazer isso primeiro para garantir que a branch nova
+nasça a partir da versão mais recente publicada, não de alguma branch
+antiga esquecida.
 
-**Teste imediato, antes de continuar:** recarregue o app publicado
-(`https://compra-planejada.web.app`) e abra o Console do navegador (F12).
-Os erros `Missing or insufficient permissions` devem sumir. Se ainda
-aparecerem depois deste passo, o problema não é mais as regras — é a
-Parte 3 (o código do escopo) que ainda não foi publicada.
+```powershell
+git pull origin main
+```
+
+`git pull origin main` busca no GitHub (`origin`) o que há de mais
+recente na branch `main` e atualiza sua cópia local. Sem isso, sua
+`main` local poderia estar desatualizada em relação ao que já foi
+mesclado (por exemplo, se o Pull Request da rodada anterior foi
+mesclado direto pelo site do GitHub).
+
+Agora crie a branch nova para este trabalho:
+
+```powershell
+git checkout -b corrige-convite-familia
+```
+
+`git checkout -b nome` cria uma branch nova com esse nome **e** já troca
+para ela, num só comando (é um atalho para `git branch nome` seguido de
+`git checkout nome`). A partir daqui, qualquer commit que você fizer vai
+para essa branch, não para `main`.
 
 ---
 
-## Parte 3 — Aplicar o código desta rodada
+## Parte 3 — Trazer o código novo para a pasta do projeto
 
-### O que mudou
+Copie o conteúdo do arquivo `.zip` desta entrega **por cima** da pasta
+`C:\Projetos\Compra Planejada\compra-planejada` — sobrescrevendo os
+arquivos que já existem lá. Os arquivos que mudaram nesta correção são:
 
-| Problema relatado | Causa raiz encontrada | Correção |
-|---|---|---|
-| Erros de permissão no console (Anexo 2) | **Bug crítico**: `app.escopo` nascia com um `owner.id` de valor `'local'` (placeholder) e nunca era atualizado com o uid real depois do login. Toda consulta no escopo "Minhas listas" pedia dados de um dono que não existe, e as regras (corretas!) recusavam | `App.svelte` agora sincroniza `app.escopo` com o uid real no login e no logout |
-| "Gerenciar" ainda não abria | Consequência do bug acima: um `await` sem tratamento dentro de `abrirGerenciarFamilia` travava a função (por causa do erro de permissão) antes de o modal ser aberto | Modal abre primeiro; busca de convites agora tem `try/catch` — uma falha ali não impede mais o modal de abrir |
-| Deploy de regras falhando no CI (Anexo 1) | Conta de serviço sem o papel necessário | Ver Parte 1 (ação fora do código, no Console do Google Cloud) |
+- `firestore.rules` (a regra de segurança corrigida)
+- `src/lib/data/FirestoreRepository.ts` (o fluxo de entrar na família corrigido)
+- `src/App.svelte` (tratamento de erro ao gerar convite)
+- `src/lib/ui/TelaGerenciarFamilia.svelte` (botão desabilitado durante o envio)
 
-### Funcionalidades novas
+Não precisa apagar nada antes de copiar — sobrescrever é suficiente,
+porque nenhum arquivo foi removido nesta rodada.
 
-| Funcionalidade | Como usar |
-|---|---|
-| **Sair da conta** | Ícone 👤 no cabeçalho → "Sair da conta" |
-| **Arrastar e soltar** para reordenar itens e corredores | Ícone ⠿ em cada linha — os botões ▲▼ continuam existindo como alternativa acessível por teclado/leitor de tela |
+---
 
-### Verificação local antes de publicar
+## Parte 4 — Verificar que o código está correto antes de publicar
+
+**Por que este passo nunca é opcional:** ele roda os mesmos testes que o
+GitHub vai rodar automaticamente depois. Encontrar um problema aqui,
+no seu computador, é muito mais rápido do que esperar o Pull Request
+falhar.
 
 ```powershell
 npm install
+```
+
+Este comando lê o arquivo `package.json` do projeto e baixa, na pasta
+`node_modules`, qualquer biblioteca que ainda não esteja instalada na
+sua máquina. Rodar sempre, mesmo quando "parece" que nada mudou nas
+dependências — é rápido quando não há nada novo para baixar, e evita o
+erro "Cannot find module" que já aconteceu numa rodada anterior.
+
+```powershell
 npm run verificar
 ```
 
-- [ ] `svelte-check found 0 errors`
-- [ ] **132 passed** (eram 118 — 11 testes novos de arrastar/soltar, 3 de sair da conta indiretamente cobertos pelos existentes)
-- [ ] build sem erro
+Este comando roda, em sequência: a checagem de tipos do TypeScript
+(`svelte-check`), depois os 132 testes automatizados, depois o processo
+de build (que gera a versão otimizada do app). Se qualquer uma dessas
+três etapas falhar, o comando para e mostra o erro — é o sinal para
+parar e investigar antes de continuar.
 
-> `npm install` está listado explicitamente aqui, e não como um passo
-> implícito: esta consultoria já causou confusão antes ao presumir que
-> "atualizar os arquivos" incluía atualizar dependências. Sempre rode
-> `npm install` antes de `npm run verificar` quando aplicar uma entrega
-> nova — o `package.json` pode ter ganhado uma biblioteca nova (aconteceu
-> com `tesseract.js` e depois com `jspdf`) que só é baixada nesse passo.
+**O que esperar na tela, se tudo estiver certo:**
+```
+svelte-check found 0 errors and ... warnings
+...
+Test Files  5 passed (5)
+     Tests  132 passed (132)
+...
+✓ built in ...
+```
+
+- [ ] `0 errors` na checagem de tipos
+- [ ] `132 passed` nos testes
+- [ ] build concluído sem mensagem de erro (avisos sobre "chunks larger
+      than 500 kB" são esperados e não impedem nada — são só uma
+      sugestão de otimização futura, relacionada ao tamanho do SDK do
+      Firebase, não um problema)
 
 ---
 
-## Parte 4 — Publicar a atualização
+## Parte 5 — Subir a branch e abrir o Pull Request
+
+Primeiro, avise o Git sobre quais arquivos você quer incluir no próximo
+commit:
 
 ```powershell
 git add -A
-git commit -m "Corrige escopo pessoal com uid real, Gerenciar, adiciona sair da conta e arrastar-soltar"
-git push origin main
 ```
 
-- [ ] Aba **Actions** → workflow "Deploy — Compra Planejada" verde nos
-      quatro jobs (`build_e_testes`, `publicar_producao`,
-      `publicar_regras_firestore`)
-- [ ] Desta vez `publicar_regras_firestore` também deve ficar verde —
-      é o teste de que a Parte 1 funcionou
+`git add -A` marca **todos** os arquivos que mudaram (novos, editados ou
+removidos) para entrar no próximo commit. O `-A` significa "all"
+(todos) — sem ele, seria preciso listar cada arquivo um por um.
+
+Agora, registre essas mudanças como um commit, com uma mensagem
+descrevendo o que foi feito:
+
+```powershell
+git commit -m "Corrige convite de familia: lista de convites negada pela regra, e entrada de novo membro negada pela mesma causa"
+```
+
+`git commit -m "mensagem"` cria um "ponto de salvamento" no histórico do
+projeto, com a mensagem entre aspas explicando o que mudou. Essa
+mensagem fica visível para sempre no histórico — vale escrever algo que
+faça sentido para você (ou para outra pessoa) daqui a alguns meses.
+
+Envie a branch para o GitHub:
+
+```powershell
+git push -u origin corrige-convite-familia
+```
+
+`git push` envia os commits da sua branch local para o GitHub
+(`origin`). O `-u origin corrige-convite-familia` faz duas coisas ao
+mesmo tempo: cria a branch `corrige-convite-familia` no GitHub (ela
+ainda não existia lá) e "liga" a sua branch local a essa branch remota,
+para que da próxima vez baste digitar `git push` sem repetir o nome.
+
+**No navegador:**
+
+1. Abra `https://github.com/paineis-gerenciais/compra-planejada`
+2. O GitHub costuma mostrar um aviso amarelo, "corrige-convite-familia
+   had recent pushes", com um botão **Compare & pull request** — clique
+   nele. (Se não aparecer, vá manualmente em **Pull requests → New pull
+   request**, e escolha `base: main` ← `compare: corrige-convite-familia`)
+3. Clique em **Create pull request**
+
+Isso não publica nada ainda — é só o pedido de mesclagem, que dispara os
+testes automáticos e gera um link de teste isolado (a Parte 6).
 
 ---
 
-## Parte 5 — Verificação completa
+## Parte 6 — Testar o preview antes de aceitar
 
-Abrir `https://compra-planejada.web.app`, de preferência num navegador
-anônimo/aparelho ainda não testado, e conferir nesta ordem:
+Depois de criar o Pull Request, o GitHub roda o workflow automaticamente.
+Isso leva de 1 a 3 minutos.
 
-- [ ] Login funciona sem erro
-- [ ] **A tela inicial já mostra as listas que você criou antes** —
-      este era o sintoma do bug do escopo; se ainda aparecer vazio,
-      confira se a Parte 2 e a Parte 3 foram realmente aplicadas
-- [ ] Botão "+" aparece no cabeçalho e cria lista nova
-- [ ] F12 → Console → **sem nenhum erro `Missing or insufficient
-      permissions`**
-- [ ] Ícone 👤 → mostra nome/e-mail da conta → "Sair da conta" funciona e
-      volta para a tela de login
-- [ ] Entrar de novo → listas continuam lá
-- [ ] Numa família: tocar no ⚙️ de qualquer família da lista (sem
-      precisar estar com ela ativa) → o modal de gerenciamento abre
-- [ ] Arrastar um item pelo ⠿ para outra posição dentro da categoria —
-      a ordem persiste depois de recarregar a página
-- [ ] Arrastar uma categoria no modal "Corredores" — mesma verificação
-- [ ] Os botões ▲▼ ainda funcionam como alternativa (teste ao menos uma
-      vez com o teclado, tabulando até o botão e apertando Enter)
-- [ ] "Mover lista", "PDF", "Compartilhar", edição de item (✎) — todos
-      continuam funcionando (regressão da rodada anterior)
+- [ ] Na própria página do Pull Request, role até os "checks" — devem
+      aparecer marcados com um ✓ verde: `build_e_testes` e
+      `publicar_preview`
+- [ ] Um comentário automático aparece no Pull Request com um link de
+      preview, algo como
+      `https://compra-planejada--corrige-convite-familia-xxxx.web.app`
+
+**Abra esse link e teste especificamente o que foi corrigido:**
+
+- [ ] Entrar com uma conta, abrir ou criar uma família
+- [ ] Ícone ⚙️ de gerenciar → **Gerar convite** → o código de 8 letras
+      deve aparecer na tela imediatamente
+- [ ] Copiar o link do convite gerado
+- [ ] Num navegador **anônimo** (ou outra conta), colar/abrir esse link
+      e entrar na família com uma conta diferente
+- [ ] A pessoa nova deve aparecer na lista de membros da família
+- [ ] F12 (abre as Ferramentas do Desenvolvedor) → aba **Console** → não
+      deve aparecer nenhum erro em vermelho durante esse teste
+
+Se algo não funcionar aqui, **não mescle ainda** — volte à Parte 3 e
+confira se todos os arquivos foram realmente sobrescritos.
 
 ---
 
-## Reversão
+## Parte 7 — Mesclar e confirmar em produção
 
-**Código:**
+Com o preview testado e funcionando, volte à página do Pull Request no
+GitHub e clique em **Merge pull request**, depois **Confirm merge**.
+
+Isso dispara automaticamente:
+- O deploy do site em produção (`compra-planejada.web.app`)
+- A publicação das regras do Firestore corrigidas — **este é o passo que
+  efetivamente resolve o bug**, porque é a regra publicada que estava
+  bloqueando o convite
+
+- [ ] Aba **Actions** do repositório → workflow verde, incluindo o job
+      `publicar_regras_firestore`
+- [ ] Abrir `https://compra-planejada.web.app` (o site de produção, não
+      mais o preview) e repetir o teste da Parte 6 lá
+
+### Limpeza final (opcional, mas recomendada)
+
+```powershell
+git checkout main
+```
+
+Volta para a branch principal.
+
+```powershell
+git pull origin main
+```
+
+Atualiza sua `main` local com o que acabou de ser mesclado.
+
+```powershell
+git branch -d corrige-convite-familia
+```
+
+Apaga a branch local `corrige-convite-familia` — o `-d` (minúsculo) só
+apaga se ela já estiver mesclada em `main`, como proteção contra apagar
+trabalho por engano.
+
+```powershell
+git push origin --delete corrige-convite-familia
+```
+
+Apaga a mesma branch no GitHub, já que ela cumpriu sua função (o
+trabalho dela já está em `main`).
+
+---
+
+## Reversão, se algo der errado depois do merge
+
 ```powershell
 git revert HEAD --no-edit
 git push origin main
 ```
 
-**Regras:** só reverta se a Parte 2 tiver causado um problema novo — o
-que seria incomum, já que as regras publicadas são as mesmas que já
-existiam no repositório, só que agora realmente chegando ao Firestore.
-Se precisar, republique a versão anterior do `firestore.rules` pelo
-mesmo comando da Parte 2.
+`git revert HEAD` cria um novo commit que desfaz exatamente as mudanças
+do último commit em `main`, sem apagar o histórico (diferente de
+"desfazer", que reescreveria o passado). O `--no-edit` aceita a mensagem
+de commit padrão que o Git sugere, sem abrir um editor de texto. O
+`git push origin main` publica essa reversão, disparando um novo deploy
+automaticamente.
 
-**Nada nesta rodada apaga dados.** O bug do escopo fazia o app *não
-encontrar* listas que já existiam — ele nunca as excluiu. Depois da
-correção, elas voltam a aparecer normalmente.
-
----
-
-## Resumo de uma tela
-
-| Parte | O que resolve | Onde é feito | Obrigatória? |
-|---|---|---|---|
-| 1 · IAM | Anexo 1 (CI falhando) | Console do Google Cloud | Sim, para o CI voltar a funcionar |
-| 2 · publicar regras manualmente | Anexo 2 (permissões no app) | Terminal, agora | **Sim, imediatamente** — é a causa mais provável do app não funcionar hoje |
-| 3 · aplicar código | Escopo com uid errado, Gerenciar, + 2 funcionalidades novas | Terminal | Sim |
-| 4 · publicar | Leva tudo para produção | `git push` | Sim |
-| 5 · verificação | Confirma que resolveu de verdade | Navegador | Sim |
-
-**Se você só puder fazer uma coisa agora:** rode a Parte 2. É provável
-que ela sozinha resolva a maior parte dos sintomas visíveis hoje.
+**Sobre as regras do Firestore:** se precisar reverter só as regras (não
+o resto do código), o mesmo `git revert` já cuida disso, porque
+`firestore.rules` também está sob controle de versão e o workflow
+publica regras a cada push em `main`.

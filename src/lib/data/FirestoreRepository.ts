@@ -21,7 +21,7 @@ import {
   type Firestore, collection, doc, onSnapshot, getDoc, getDocs,
   setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy,
   writeBatch, serverTimestamp, deleteField, arrayUnion, arrayRemove,
-  runTransaction, Timestamp
+  Timestamp
 } from 'firebase/firestore';
 import type {
   Household, Invite, Item, OwnerRef, PriceEntry, Presence,
@@ -277,45 +277,48 @@ export class FirestoreRepository implements Repository {
     },
 
     /**
-     * Entrar por convite é uma transação: lê o convite, confere validade,
-     * lê a família, escreve o novo membro. Fazer isso como transação evita
-     * a corrida de duas pessoas entrando "ao mesmo tempo" com o mesmo
-     * convite deixarem o documento inconsistente.
+     * BUG CORRIGIDO: a versão anterior lia o documento da família
+     * (`tx.get(hRef)`) ANTES de a pessoa virar membro — mas a regra de
+     * leitura de `households/{hid}` exige `souMembro(hid)`, e quem está
+     * entrando ainda não é membro nesse instante. A leitura era negada
+     * pela própria regra de segurança, e o convite parava de funcionar
+     * silenciosamente para qualquer pessoa nova (só reentrar já sendo
+     * membro "funcionava", o que escondia o problema).
+     *
+     * Correção: escrever primeiro. `arrayUnion` e a definição de um campo
+     * específico (`members.${uid}`) não exigem ler o documento antes — a
+     * regra de `update` avalia o estado atual do documento por conta
+     * própria, no servidor, independente de o cliente ter lido ou não.
+     * Só depois de a escrita ter sucesso — quando a pessoa já é membro de
+     * verdade — é que uma leitura acontece, e nesse momento ela já é
+     * permitida. Trocado transação por duas chamadas simples: não há mais
+     * necessidade de atomicidade entre ler o convite e escrever a
+     * entrada — o pior cenário de corrida (convite revogado no instante
+     * exato entre as duas chamadas) só atrasaria a revogação em um caso
+     * raríssimo, não compromete segurança nenhuma.
      */
     joinByInvite: async (code: string, uid: string, nome: string) => {
       const codeUp = code.trim().toUpperCase();
       try {
-        const household = await runTransaction(this.db, async (tx) => {
-          const invRef = doc(this.db, 'householdInvites', codeUp);
-          const invSnap = await tx.get(invRef);
-          if (!invSnap.exists()) throw new Error('NAO_ENCONTRADO');
-          const inv = invSnap.data() as Invite;
-          if (inv.revokedAt != null) throw new Error('CANCELADO');
-          if (!conviteValido(inv)) throw new Error('EXPIRADO');
+        const invSnap = await getDoc(doc(this.db, 'householdInvites', codeUp));
+        if (!invSnap.exists()) return { ok: false as const, erro: 'Convite não encontrado. Confira o código.' };
+        const inv = invSnap.data() as Invite;
+        if (inv.revokedAt != null) return { ok: false as const, erro: 'Este convite foi cancelado.' };
+        if (!conviteValido(inv)) return { ok: false as const, erro: 'Este convite expirou. Peça um novo.' };
 
-          const hRef = doc(this.db, 'households', inv.householdId);
-          const hSnap = await tx.get(hRef);
-          if (!hSnap.exists()) throw new Error('FAMILIA_SUMIU');
-          const h = hSnap.data() as Household;
-
-          if (!h.memberUids.includes(uid)) {
-            tx.update(hRef, {
-              memberUids: arrayUnion(uid),
-              [`members.${uid}`]: { role: inv.role, name: nome, joinedAt: Date.now(), inviteCode: codeUp },
-              updatedAt: Date.now()
-            });
-          }
-          return { ...h, memberUids: [...new Set([...h.memberUids, uid])] };
+        const hRef = doc(this.db, 'households', inv.householdId);
+        await updateDoc(hRef, {
+          memberUids: arrayUnion(uid),
+          [`members.${uid}`]: { role: inv.role, name: nome, joinedAt: Date.now(), inviteCode: codeUp },
+          updatedAt: Date.now()
         });
-        return { ok: true as const, household };
+
+        const hSnap = await getDoc(hRef); // agora a pessoa já é membro — leitura permitida
+        if (!hSnap.exists()) return { ok: false as const, erro: 'Esta família não existe mais.' };
+        return { ok: true as const, household: hSnap.data() as Household };
       } catch (e: any) {
-        const mapa: Record<string, string> = {
-          NAO_ENCONTRADO: 'Convite não encontrado. Confira o código.',
-          CANCELADO: 'Este convite foi cancelado.',
-          EXPIRADO: 'Este convite expirou. Peça um novo.',
-          FAMILIA_SUMIU: 'Esta família não existe mais.'
-        };
-        return { ok: false as const, erro: mapa[e?.message] ?? 'Não foi possível entrar agora. Tente de novo.' };
+        console.error('Erro ao entrar na família', e);
+        return { ok: false as const, erro: 'Não foi possível entrar agora. Tente de novo.' };
       }
     },
 
