@@ -1,240 +1,144 @@
-# Implantação — Compra Planejada (Firebase Hosting + GitHub)
+# Implantação — Compras (revisão desta rodada)
 
-Passo a passo completo, do zero, para o projeto final: **Firebase Hosting**
-(não GitHub Pages), repositório
-**https://github.com/paineis-gerenciais/compra-planejada**, e GitHub
-Actions como ferramenta de teste de versão e merge — cada Pull Request
-publica um canal de preview isolado antes de qualquer coisa ir para
-produção.
-
-Sem etapa de migração: é uma implantação nova, projeto Firebase novo,
-repositório novo.
+Passo a passo completo para publicar a versão atual: correções de UX
+(nova lista, Gerenciar), indicador de família ativa, onboarding, ícones
+reais, mover lista entre escopos, ordem de corredores, edição avançada de
+item, PDF e compartilhamento. Se o projeto já está publicado e você só
+quer aplicar esta atualização, pule direto para a **Parte 3**.
 
 ```
-PARTE 1   Firebase Hosting habilitado no projeto (rápido — Auth e Firestore já existem)
-PARTE 2   Repositório GitHub e primeiro push
-PARTE 3   Secret de deploy (a peça que liga GitHub ↔ Firebase)
-PARTE 4   Primeiro deploy e verificação
-PARTE 5   Fluxo do dia a dia — PR, preview, merge, produção
+PARTE 1   Diagnóstico do erro de CI visto no Pull Request
+PARTE 2   O que mudou nesta rodada (código)
+PARTE 3   Publicar a atualização
+PARTE 4   Publicar as regras do Firestore manualmente
+PARTE 5   Verificação pós-publicação
 ```
 
 ---
 
-## Por que Firebase Hosting em vez de GitHub Pages
+## Parte 1 — Diagnóstico: por que o Pull Request mostrou "Failing"
 
-A publicação anterior falhou porque o GitHub Pages estava servindo o
-código-fonte (`/src/main.ts`, 404) em vez do `dist/` compilado — um erro de
-configuração do **Source** em Settings → Pages. O Firebase Hosting evita
-essa classe inteira de erro: o `firebase.json` desta entrega já define
-explicitamente `"public": "dist"`, então não existe a possibilidade de
-publicar a pasta errada por engano — é literal no arquivo, versionado
-junto com o código.
+O print mostrava um check chamado **"Deploy to Firebase Hosting on PR /
+build_and_preview"** falhando, enquanto todos os checks do workflow que
+esta consultoria construiu (**"Deploy — Compra Planejada"** — `build_e_testes`,
+`publicar_preview`, e o "Deploy Preview" postado pela própria ação de
+deploy) apareciam **verdes**.
+
+**Diagnóstico:** esse nome — "Deploy to Firebase Hosting on PR" com o job
+`build_and_preview` — não corresponde a nenhum workflow desta entrega.
+Ele é o nome padrão que o **próprio Firebase CLI gera automaticamente**
+quando se responde "sim" à pergunta "Set up automatic builds and deploys
+with GitHub?" durante o `firebase init hosting:github`. É bem provável
+que isso tenha acontecido numa das execuções desse comando (a orientação
+anterior era responder "não" a essa pergunta, exatamente para evitar
+duplicidade — mas o prompt pode ter sido respondido diferente, ou rodado
+mais de uma vez).
+
+**Resultado prático:** o repositório ficou com **dois workflows
+tentando publicar o mesmo site**. O seu (`deploy.yml`) funciona. O
+gerado automaticamente pelo Firebase CLI provavelmente falha porque o
+gerador padrão não sabe que este é um projeto Vite/Svelte com testes
+obrigatórios antes do build — ele assume uma estrutura genérica.
+
+### Correção
+
+- [ ] No repositório, verificar se existem estes dois arquivos (nomes
+      padrão do gerador do Firebase):
+      `.github/workflows/firebase-hosting-pull-request.yml`
+      `.github/workflows/firebase-hosting-merge.yml`
+- [ ] Se existirem, **apagar os dois** — o `deploy.yml` desta entrega já
+      cobre tudo o que eles fariam (preview em PR, produção no merge),
+      com o portão de qualidade que faltava neles
+- [ ] Confirmar que `.github/workflows/` fica só com `deploy.yml`
+- [ ] Commit e push — o check "Deploy to Firebase Hosting on PR" deve
+      parar de aparecer nos próximos Pull Requests
+
+```powershell
+Remove-Item .github\workflows\firebase-hosting-pull-request.yml -ErrorAction SilentlyContinue
+Remove-Item .github\workflows\firebase-hosting-merge.yml -ErrorAction SilentlyContinue
+git add -A
+git commit -m "Remove workflow duplicado gerado pelo Firebase CLI"
+git push origin main
+```
+
+> Esta é a explicação mais provável dado o nome exato do check que
+> falhou — não foi possível confirmar lendo o log de erro em si, então
+> se depois de remover esses arquivos o problema persistir, o próximo
+> passo é abrir o log da execução falha no GitHub (Actions → o run
+> vermelho → clicar no job → expandir o passo com o X) e copiar a
+> mensagem de erro exata.
 
 ---
 
-## Parte 1 — Habilitar o Firebase Hosting
+## Parte 2 — O que mudou nesta rodada
 
-Você disse que o `firebaseConfig` já foi adicionado ao projeto
-`compra-planejada`. Falta habilitar o **Hosting** em si (Authentication e
-Firestore presumo já configurados de sessões anteriores — se não, ver os
-itens 1.3/1.4 abaixo antes de seguir).
+### Correções
 
-### 1.1 Habilitar o Hosting no Console
+| Problema relatado | Causa raiz | Correção |
+|---|---|---|
+| Sem botão de nova lista | Nunca existiu — `.abas` só listava o que já havia | `ModalNovaLista.svelte` + botão tracejado no cabeçalho |
+| "Gerenciar" não funcionava (persistiu após correção anterior) | O botão só aparecia dentro da família **já ativa como escopo**, e a correção anterior ainda dependia de um estado (`app.casaAtual`) compartilhado com "qual lista estou vendo" | Estado próprio (`familiaEmGerenciamento`) com assinatura independente; botão de gerenciar direto em cada linha da lista de famílias, sem precisar trocar de escopo antes |
 
-- [ ] [console.firebase.google.com](https://console.firebase.google.com) →
-      projeto `compra-planejada` → **Hosting** (menu lateral) → **Começar**
-- [ ] Pode pular os passos de "instalar CLI" e "fazer deploy" mostrados no
-      assistente do Console — o GitHub Actions vai fazer isso sozinho a
-      partir da Parte 3. Só precisa que o Hosting apareça como habilitado.
+### Funcionalidades novas
 
-### 1.2 Domínios padrão gerados
+| Funcionalidade | Como acessar |
+|---|---|
+| Indicador de família ativa | Pílula no cabeçalho, sempre visível |
+| Onboarding no primeiro acesso | Automático, uma vez por aparelho |
+| **Mover lista entre pessoal e família** | Botão "🔀 Mover lista" abaixo da lista ativa |
+| **Ordem dos corredores por mercado** | Botão "🧭 Corredores" abaixo da lista ativa |
+| **Edição avançada de item** | Ícone ✎ em cada item (unidade por seletor, categoria, preço) |
+| **Gerar PDF** | Botão "🧾 PDF" abaixo da lista ativa |
+| **Compartilhar como texto (WhatsApp)** | Botão "🔗 Compartilhar" — abre o seletor nativo do celular quando disponível; copia para a área de transferência como alternativa |
+| Ícone do app | Substituído pelos arquivos enviados (fundo verde, recibo com check) |
+| Nome do PWA | Padronizado como "Compras" (`name` e `short_name` no manifest) |
 
-O Hosting cria automaticamente:
-- `compra-planejada.web.app`
-- `compra-planejada.firebaseapp.com`
-
-### 1.3 Conferir domínios autorizados para login
-
-- [ ] **Authentication → Settings → Authorized domains**
-- [ ] Confirmar que `compra-planejada.firebaseapp.com` está na lista — ele
-      é auto-adicionado pelo Firebase por ser o `authDomain` do seu
-      `firebaseConfig`
-- [ ] Confirmar que `compra-planejada.web.app` **também** está na lista.
-      Normalmente já vem pré-populado quando o Hosting é habilitado no
-      mesmo projeto, mas **confira, não presuma** — se não estiver, clique
-      em **Add domain** e adicione manualmente
-
-### 1.4 Firestore e Authentication (se ainda não configurados)
-
-- [ ] **Authentication → Sign-in method** → Google e E-mail/senha habilitados
-- [ ] **Firestore Database** → criado, região `southamerica-east1`
-
-**Critério de saída da Parte 1:** Hosting habilitado, os dois domínios
-padrão confirmados em Authorized domains.
-
----
-
-## Parte 2 — Repositório GitHub e primeiro push
-
-O repositório `compra-planejada` é novo — sem histórico conflitante, sem
-necessidade de `--force`.
-
-No PowerShell/CMD, dentro da pasta do projeto:
-
-```powershell
-cd "C:\Projetos\Compra Planejada\compra-planejada"
-
-git init
-git remote add origin https://github.com/paineis-gerenciais/compra-planejada.git
-```
-
-Se o repositório no GitHub já foi criado com algum arquivo (README,
-`.gitignore` por exemplo), busque-o antes de continuar:
-
-```powershell
-git fetch origin
-git branch -M main
-```
-
-Copie o conteúdo desta entrega para a pasta do projeto (todos os arquivos:
-`src/`, `public/`, `.github/`, `firebase.json`, `.firebaserc`,
-`firestore.rules`, `firestore.indexes.json`, `package.json`, etc.).
-
-```powershell
-npm install
-```
-
-Editar `.gitignore` — crie se não existir:
-
-```
-node_modules/
-dist/
-.env
-.env.local
-*.local
-```
+### Verificação local antes de publicar
 
 ```powershell
 npm run verificar
 ```
 
 - [ ] `svelte-check found 0 errors`
-- [ ] `109 passed`
+- [ ] **118 passed** (eram 113 — 5 testes novos: 4 de compartilhamento como texto, mais os já existentes de onboarding)
 - [ ] build sem erro
 
+---
+
+## Parte 3 — Publicar a atualização
+
 ```powershell
+cd "C:\Projetos\Compra Planejada\compra-planejada"
+
 git add -A
-git commit -m "Primeira versão: Compra Planejada"
-git push -u origin main
-```
-
-- [ ] Push aceito sem erro (repositório novo, não deve haver rejeição)
-
-**Critério de saída da Parte 2:** o código está no GitHub, branch `main`.
-
----
-
-## Parte 3 — Secret de deploy (GitHub ↔ Firebase)
-
-Esta é a peça que faltava para o GitHub Actions conseguir publicar no
-Firebase Hosting em seu nome. Sem ela, o workflow desta entrega falha no
-passo de deploy com erro de autenticação — de propósito, para nunca
-publicar sem credencial válida.
-
-### 3.1 Gerar a credencial (mais simples: pelo próprio Firebase CLI)
-
-No seu computador, dentro da pasta do projeto:
-
-```powershell
-npm install -g firebase-tools
-firebase login
-firebase init hosting:github
-```
-
-Esse comando é interativo e faz tudo sozinho:
-- pergunta a qual projeto Firebase vincular → `compra-planejada`
-- pergunta o repositório GitHub → `paineis-gerenciais/compra-planejada`
-- **cria a service account**, gera a credencial, e **já cadastra o secret
-  automaticamente no GitHub** (`FIREBASE_SERVICE_ACCOUNT_COMPRA_PLANEJADA`
-  ou nome semelhante — anote o nome exato que ele mostrar)
-- pergunta se quer criar os workflows de deploy — responda **não**, porque
-  esta entrega já vem com `.github/workflows/deploy.yml` pronto e mais
-  completo (com portão de testes antes do deploy)
-
-- [ ] Comando concluído sem erro
-- [ ] Secret aparece em GitHub → repositório → **Settings → Secrets and
-      variables → Actions**
-
-### 3.2 Conferir o nome do secret no workflow
-
-Abra `.github/workflows/deploy.yml` e `.github/workflows/firestore-rules.yml`
-desta entrega — eles esperam o secret com o nome
-`FIREBASE_SERVICE_ACCOUNT_COMPRA_PLANEJADA`. Se o assistente do passo 3.1
-gerou um nome diferente, ajuste os dois arquivos para usar o nome real, ou
-renomeie o secret no GitHub para bater com o esperado.
-
-- [ ] Nome do secret confere nos dois arquivos de workflow
-
-### 3.3 Alternativa manual (se preferir não usar o assistente)
-
-1. Console do Google Cloud → **IAM e administrador → Contas de serviço** →
-   criar uma conta de serviço no projeto `compra-planejada` com o papel
-   **Firebase Hosting Admin**
-2. Gerar uma chave JSON para essa conta
-3. No GitHub: **Settings → Secrets and variables → Actions → New repository
-   secret** → nome `FIREBASE_SERVICE_ACCOUNT_COMPRA_PLANEJADA`, colar o
-   conteúdo do JSON inteiro
-
-**Critério de saída da Parte 3:** o secret existe no repositório GitHub com
-o nome que os workflows esperam.
-
----
-
-## Parte 4 — Primeiro deploy e verificação
-
-```powershell
+git commit -m "Corrige nova lista e Gerenciar; adiciona mover lista, corredores, edição avançada, PDF e compartilhar; ícones reais; onboarding"
 git push origin main
 ```
 
-(Se já tiver feito o push da Parte 2 e não houver mudança nova, crie um
-commit vazio só para disparar o workflow: `git commit --allow-empty -m
-"Dispara o primeiro deploy"` e dê push.)
+- [ ] Aba **Actions** → workflow "Deploy — Compra Planejada" verde
+      (`build_e_testes`, `publicar_producao`, `publicar_regras_firestore`)
+- [ ] Nenhum check "Deploy to Firebase Hosting on PR" aparece mais (Parte 1)
 
-- [ ] Aba **Actions** do repositório → workflow "Deploy — Compra
-      Planejada" rodando
-- [ ] Job `build_e_testes` verde (svelte-check + 109 testes + build)
-- [ ] Job `publicar_producao` verde
-- [ ] Job `publicar_regras_firestore` também verde (roda em todo push em
-      `main`, sem depender de filtro de caminho alterado — ver nota
-      abaixo sobre por que não usamos mais `paths:`)
+---
 
-> **Nota sobre a versão anterior deste workflow:** a primeira versão
-> publicava as regras num workflow separado, disparado só quando
-> `firestore.rules`/`firestore.indexes.json` mudavam (filtro `paths:`).
-> Esse filtro depende de o GitHub conseguir comparar contra um commit
-> anterior na mesma branch, e esse comportamento varia conforme como a
-> branch nasceu — é um dos cantos mais inconsistentes do GitHub Actions,
-> e não disparou no primeiro push real deste projeto. A correção: juntar
-> a publicação de regras como um job a mais dentro do mesmo
-> `deploy.yml`, disparado em todo push em `main`, sem condição de
-> caminho. Reenviar regras idênticas é praticamente instantâneo e não
-> tem efeito colateral, então não há custo em rodar sempre.
+## Parte 4 — Publicar as regras do Firestore manualmente
 
-### Publicar as regras manualmente, sem esperar o Actions
-
-Às vezes você só quer atualizar as regras do Firestore sem publicar o
-site — por exemplo, para testar uma mudança de regra isoladamente, ou
-para desbloquear um erro de permissão sem esperar o CI rodar. Um comando,
-direto do computador:
+Esta rodada não mudou `firestore.rules` nem `firestore.indexes.json` — as
+funcionalidades novas (mover lista, ordem de corredores, edição de item)
+usam permissões que já existiam (`lists`, `items`, `users`). Não é
+obrigatório publicar regras desta vez. Ainda assim, o comando fica
+registrado aqui porque é de uso recorrente — sempre que uma mudança futura
+tocar nas regras, ou para desbloquear um erro de permissão sem esperar o
+CI:
 
 ```powershell
 firebase deploy --only firestore:rules,firestore:indexes --project compra-planejada
 ```
 
-Não builda o app, não sobe nada para o GitHub — publica só
-`firestore.rules` e `firestore.indexes.json` direto no projeto.
+Não builda o app, não sobe nada para o GitHub — publica só as regras e os
+índices, direto no projeto.
 
-**Pré-requisitos** (normalmente já satisfeitos se você seguiu a Parte 3):
+**Pré-requisitos:**
 - [ ] `firebase login` feito nesta máquina
 - [ ] `.firebaserc` na pasta do projeto apontando para `compra-planejada`
       (se der erro `Not in a Firebase app directory`, rode
@@ -257,88 +161,47 @@ i  firestore: deploying indexes...
 
 **Confirmação:** Console do Firebase → **Firestore Database → Regras**
 (data de publicação atualizada) e → **Índices** (status **Ativado**; se
-mostrar "Compilando", aguarde antes de testar login ou listas no app —
-índice em construção pode fazer consultas falharem ou travarem em
-silêncio).
-
-### Verificação no navegador
-
-- [ ] Abrir `https://compra-planejada.web.app`
-- [ ] Tela de login aparece (não branco, não 404)
-- [ ] Entrar com Google — sem erro `auth/unauthorized-domain`
-- [ ] Criar uma lista, adicionar um item
-- [ ] F12 → Console → sem erro vermelho
-- [ ] F12 → Application → Service Workers → `sw.js` ativo, escopo `/`
-- [ ] F12 → Application → Manifest → nome "Compra Planejada", ícones
-      carregando sem erro (192, 512 e o maskable)
-- [ ] Índices do Firestore com status **Ativado** no Console (não
-      "Compilando") — se ainda estiver compilando, criar lista pode
-      travar ou falhar silenciosamente; aguarde antes de testar a fundo
-
-**Critério de saída da Parte 4:** o app funciona de ponta a ponta no
-endereço de produção.
+mostrar "Compilando", aguarde antes de testar no app — índice em
+construção pode fazer consultas falharem ou travarem em silêncio).
 
 ---
 
-## Parte 5 — Fluxo do dia a dia (a "ferramenta de teste de versão e merge")
+## Parte 5 — Verificação pós-publicação
 
-A partir daqui, o processo normal de mudar o app é:
+Abrir `https://compra-planejada.web.app` (ou o domínio configurado) e
+conferir, nesta ordem:
 
-```powershell
-git checkout -b nome-da-mudanca
-# ... editar código ...
-npm run verificar          # rodar local antes de subir, economiza um ciclo de CI
-git add -A
-git commit -m "Descrição da mudança"
-git push -u origin nome-da-mudanca
-```
-
-No GitHub, abrir um **Pull Request** de `nome-da-mudanca` para `main`.
-
-- [ ] O workflow builda, testa, e — se passar — comenta no próprio PR o
-      link do **canal de preview** (algo como
-      `compra-planejada--nome-da-mudanca-xxxx.web.app`)
-- [ ] Abrir esse link, testar a mudança de verdade, num ambiente isolado
-      que não afeta `compra-planejada.web.app`
-- [ ] Se algo estiver errado, corrigir e dar push de novo na mesma branch —
-      o preview atualiza sozinho
-- [ ] Satisfeito, **Merge** do PR
-
-O merge dispara o job `publicar_producao`: build, testes, e deploy no canal
-`live`. O canal de preview daquele PR expira sozinho em 7 dias — não
-precisa limpar manualmente.
-
-**Isto substitui, por completo, qualquer necessidade de `git push --force`
-no dia a dia.** Force push só voltaria a ser necessário num cenário
-excepcional (reescrever histórico por algum motivo grave), o que não é o
-fluxo normal de trabalho.
+- [ ] Ícone e nome corretos ao instalar o PWA (fundo verde, "Compras")
+- [ ] Primeiro acesso num navegador anônimo/aparelho novo mostra o
+      onboarding de 4 passos
+- [ ] Pílula de escopo no cabeçalho mostra "Minhas listas" ou o nome da
+      família corretamente
+- [ ] Botão "+" no cabeçalho abre o modal de nova lista e cria de verdade
+- [ ] Numa família: abrir "Listas compartilhadas", tocar no ícone ⚙️ de
+      **qualquer** família da lista (não precisa estar com ela ativa) —
+      o modal de gerenciamento abre
+- [ ] "Mover lista" lista os destinos corretos e move de verdade (conferir
+      que os itens continuam lá depois de mover)
+- [ ] "Corredores" abre com as categorias da lista atual, reordena e salva
+- [ ] Tocar no ✎ de um item abre a edição avançada; salvar reflete na lista
+- [ ] "PDF" baixa um arquivo com os itens agrupados por categoria
+- [ ] "Compartilhar" abre o seletor do celular (ou copia o texto no
+      desktop) com a lista formatada, itens marcados `[x]`/`[ ]`
+- [ ] F12 → Console → sem erro vermelho em nenhum dos fluxos acima
 
 ---
 
 ## Reversão
 
-**Voltar produção para uma versão anterior:** reverter o merge no GitHub
-(botão "Revert" no próprio PR mesclado, ou `git revert`) e dar push em
-`main` — o workflow publica a versão revertida automaticamente.
+Se algo quebrar depois do push:
 
-**Recuperação de dados:** o Firestore não é tocado por nenhum passo deste
-runbook além da Parte 1.4 (criação) e da publicação de regras — que só
-define permissões, nunca apaga dados.
+```powershell
+git revert HEAD --no-edit
+git push origin main
+```
 
----
-
-## Resumo executivo
-
-| Parte | Serve para | Uma vez só ou recorrente? |
-|---|---|---|
-| 1 · Hosting + domínios | fundação no Firebase | uma vez |
-| 2 · repositório | código no GitHub | uma vez (primeiro push) |
-| 3 · secret | GitHub consegue publicar no Firebase | uma vez |
-| 4 · primeiro deploy | confirmar que tudo funciona ponta a ponta | uma vez |
-| 5 · fluxo do dia a dia | toda mudança futura | recorrente — é o processo normal |
-
-**O que decide o ritmo:** as Partes 1 a 4 são configuração única. A Parte 5
-é o processo que você vai repetir para cada mudança dali para frente —
-branch, PR, preview, merge, produção — sem nunca mais precisar decidir
-manualmente "para onde publicar" ou correr o risco de publicar a pasta
-errada, porque isso agora está fixado no `firebase.json`.
+O workflow publica a versão revertida automaticamente. Nenhum passo desta
+rodada altera dados existentes no Firestore — mover lista muda o campo
+`owner` do documento (reversível, os itens não são tocados), e as demais
+funcionalidades são leitura/escrita normal já coberta pelas regras
+existentes.

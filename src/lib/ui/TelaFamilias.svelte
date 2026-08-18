@@ -42,15 +42,17 @@
     </button>
 
     {#each minhasCasas as h (h.id)}
-      <button class="casa" class:ativa={escopoAtual.kind === 'household' && escopoAtual.id === h.id}
-        onclick={() => onEscolher({ kind: 'household', id: h.id }, h.name)}>
-        <span class="avatar" style:background={corDe(h.id)}>{iniciais(h.name)}</span>
-        <span class="info">
-          <span class="nomeCasa">{h.name}</span>
-          <span class="subCasa">{h.memberUids.length} {h.memberUids.length === 1 ? 'pessoa' : 'pessoas'} · você é {papelPorExtenso(h.members[uid]?.role ?? 'viewer')}</span>
-        </span>
-        {#if escopoAtual.kind === 'household' && escopoAtual.id === h.id}<span class="check">✓</span>{/if}
-      </button>
+      <div class="casa" class:ativa={escopoAtual.kind === 'household' && escopoAtual.id === h.id}>
+        <button class="casaArea" onclick={() => onEscolher({ kind: 'household', id: h.id }, h.name)}>
+          <span class="avatar" style:background={corDe(h.id)}>{iniciais(h.name)}</span>
+          <span class="info">
+            <span class="nomeCasa">{h.name}</span>
+            <span class="subCasa">{h.memberUids.length} {h.memberUids.length === 1 ? 'pessoa' : 'pessoas'} · você é {papelPorExtenso(h.members[uid]?.role ?? 'viewer')}</span>
+          </span>
+          {#if escopoAtual.kind === 'household' && escopoAtual.id === h.id}<span class="check">✓</span>{/if}
+        </button>
+        <button class="gerenciarBtn" title="Gerenciar {h.name}" aria-label="Gerenciar {h.name}" onclick={() => onGerenciar(h)}>⚙️</button>
+      </div>
     {/each}
 
     <div class="opcoes">
@@ -62,15 +64,6 @@
         <span class="icone">🔑</span>
         <span class="texto"><strong>Entrar com um convite</strong><span>Se alguém te mandou um código ou link</span></span>
       </button>
-      {#if escopoAtual.kind === 'household'}
-        {@const casa = minhasCasas.find((h) => h.id === escopoAtual.id)}
-        {#if casa}
-          <button class="opcao" onclick={() => onGerenciar(casa)}>
-            <span class="icone">⚙️</span>
-            <span class="texto"><strong>Gerenciar "{casa.name}"</strong><span>Membros, convites e permissões</span></span>
-          </button>
-        {/if}
-      {/if}
     </div>
   </Modal>
 {:else if tela === 'criar'}
@@ -97,10 +90,19 @@
 <style>
   .sub { font-size: var(--fs-sm); color: var(--ink-light); line-height: 1.5; margin: 0 0 var(--sp-3); }
   .casa {
-    display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3); margin-bottom: var(--sp-2);
-    border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); width: 100%; text-align: left;
+    display: flex; align-items: stretch; gap: 0; margin-bottom: var(--sp-2);
+    border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); overflow: hidden;
   }
   .casa.ativa { border-color: var(--green); background: var(--green-light); }
+  .casaArea {
+    display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3);
+    flex: 1; min-width: 0; text-align: left; background: none; border: none; color: inherit;
+  }
+  .gerenciarBtn {
+    flex-shrink: 0; width: 46px; border: none; border-left: 1px solid var(--border);
+    background: none; font-size: 16px; color: var(--ink-light);
+  }
+  .gerenciarBtn:hover { background: rgba(0,0,0,0.04); color: var(--ink); }
   .avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-family: var(--font-mono); font-weight: 700; font-size: 12px; flex-shrink: 0; }
   .info { flex: 1; min-width: 0; }
   .nomeCasa { display: block; font-size: var(--fs-md); font-weight: 600; }

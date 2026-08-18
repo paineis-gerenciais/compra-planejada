@@ -27,8 +27,15 @@
   import ModalConfirmarPendentes from './lib/ui/ModalConfirmarPendentes.svelte';
   import ModalNovaLista from './lib/ui/ModalNovaLista.svelte';
   import TelaOnboarding from './lib/ui/TelaOnboarding.svelte';
+  import ModalMoverLista from './lib/ui/ModalMoverLista.svelte';
+  import ModalOrdemCorredores from './lib/ui/ModalOrdemCorredores.svelte';
+  import ModalEditarItem from './lib/ui/ModalEditarItem.svelte';
 
   import { deveMostrarOnboarding, marcarOnboardingVisto } from './lib/servicos/onboarding';
+  import { gerarPdfDaLista } from './lib/servicos/pdf';
+  import { compartilharLista } from './lib/servicos/compartilhar';
+  import { aisleKey, ordenarCategorias } from './lib/domain/aisles';
+  import { CATEGORIAS_PADRAO } from './lib/domain/categorize';
 
   import {
     adicionarItens, alternarComprado, criarLista, moverItem,
@@ -49,11 +56,20 @@
   let carregandoSessao = $state(!!firebase);
 
   // ---------------- modais visíveis ----------------
-  let modalAberto = $state<null | 'checkout' | 'historico' | 'precos' | 'familias' | 'gerenciarFamilia' | 'ocr' | 'insights' | 'finalizarPendentes' | 'novaLista'>(null);
+  let modalAberto = $state<null | 'checkout' | 'historico' | 'precos' | 'familias' | 'gerenciarFamilia' | 'ocr' | 'insights' | 'finalizarPendentes' | 'novaLista' | 'moverLista' | 'ordemCorredores' | 'editarItem'>(null);
   let itensParaFinalizar = $state<Item[]>([]);
   let dadosCheckout: { store: string | null; actualTotal: number | null } | null = $state(null);
   let convitesDaCasa = $state<ConviteVisivel[]>([]);
   let mostrarOnboarding = $state(false);
+  let itemEmEdicao = $state<Item | null>(null);
+  let toast = $state('');
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function mostrarToast(msg: string): void {
+    toast = msg;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast = ''; }, 2600);
+  }
 
   let desassinarItens: (() => void) | null = null;
 
@@ -156,6 +172,74 @@
     modalAberto = null;
   }
 
+  /** NOVO: mover lista entre pessoal e família — a lógica já existia
+   *  testada desde o bloco F; faltava só a interface. */
+  async function aoMoverLista(destino: OwnerRef, nomeDestino: string) {
+    const lista = app.listaAtiva;
+    if (!lista) return;
+    await moverListaDeEscopo(repo, lista, destino);
+    modalAberto = null;
+    mostrarToast(`Lista movida para ${nomeDestino}`);
+  }
+
+  /** NOVO: ordem dos corredores por mercado — mesma situação: lógica já
+   *  em uso para EXIBIR a ordem salva, faltava a tela para DEFINI-la. */
+  function abrirOrdemCorredores(): void {
+    modalAberto = 'ordemCorredores';
+  }
+  async function aoSalvarOrdemCorredores(ordem: string[]) {
+    const lista = app.listaAtiva;
+    if (!lista || !app.usuario) return;
+    const chave = aisleKey(lista);
+    const atuais = app.perfil?.aisleOrders ?? {};
+    const novo = { ...atuais, [chave]: { key: chave, order: ordem, updatedAt: Date.now() } };
+    await repo.profiles.updateProfile(app.usuario.uid, { aisleOrders: novo });
+    modalAberto = null;
+    mostrarToast('Ordem salva');
+  }
+
+  /** NOVO: edição avançada de item — unidade por seletor, categoria,
+   *  preço. A entrada rápida cobre o caso comum; isto cobre o resto. */
+  function abrirEdicaoItem(item: Item): void {
+    itemEmEdicao = item;
+    modalAberto = 'editarItem';
+  }
+  async function aoSalvarEdicaoItem(patch: Partial<Item>) {
+    if (!itemEmEdicao) return;
+    await repo.items.updateItem(itemEmEdicao.listId, itemEmEdicao.id, patch);
+    modalAberto = null;
+    itemEmEdicao = null;
+  }
+  async function aoExcluirDoEditor() {
+    if (!itemEmEdicao) return;
+    await repo.items.deleteItem(itemEmEdicao.listId, itemEmEdicao.id);
+    modalAberto = null;
+    itemEmEdicao = null;
+  }
+
+  /** NOVO: geração de PDF, no formato de cupom. */
+  async function aoGerarPdf() {
+    const lista = app.listaAtiva;
+    if (!lista) return;
+    try {
+      await gerarPdfDaLista(lista, app.itensDaAtiva);
+    } catch (e) {
+      console.error('Erro ao gerar PDF', e);
+      mostrarToast('Não foi possível gerar o PDF');
+    }
+  }
+
+  /** NOVO: compartilhar como texto — Web Share API (WhatsApp aparece no
+   *  seletor nativo do celular) com fallback de copiar para a área de
+   *  transferência em navegadores sem suporte (a maioria no desktop). */
+  async function aoCompartilhar() {
+    const lista = app.listaAtiva;
+    if (!lista) return;
+    const r = await compartilharLista(lista, app.itensDaAtiva);
+    if (r.metodo === 'clipboard') mostrarToast('Lista copiada — cole no WhatsApp');
+    else if (r.metodo === 'erro') mostrarToast('Não foi possível compartilhar');
+  }
+
   // ---------------- finalizar compra ----------------
   /* C4/H1 na v5: se sobrar item pendente e a lista NÃO for recorrente,
      primeiro perguntamos se os pendentes viram uma lista nova; só depois
@@ -214,49 +298,64 @@
     return r.ok ? { ok: true } : { ok: false, erro: r.erro };
   }
   /**
-   * BUG CORRIGIDO: `TelaFamilias` chama `onGerenciar(casa)`, passando a
-   * família clicada — mas esta função estava declarada sem parâmetro
-   * nenhum, então o argumento era descartado e a função dependia de
-   * `app.casaAtual` já estar populado pelo listener assíncrono do
-   * Firestore. Se o clique acontecesse antes desse listener responder
-   * (ex.: logo após criar ou trocar de família), o `if (!app.casaAtual)
-   * return` saía em silêncio — o botão "parecia" não fazer nada.
+   * BUG REAL, além do já corrigido: o botão "Gerenciar" usava
+   * `app.casaAtual`, que é o registro ativo da família **atualmente
+   * selecionada como escopo**. Isso amarrava duas coisas que não
+   * deveriam depender uma da outra: "qual lista estou vendo" e "qual
+   * família estou administrando". Na prática, o botão só existia dentro
+   * do escopo já ativo, e trocar de família fechava o modal antes — era
+   * fácil o usuário nunca conseguir alcançar o gerenciamento de uma
+   * família que não fosse a corrente.
    *
-   * Correção: usa a família recebida por parâmetro diretamente, e só cai
-   * para `app.casaAtual` como reserva. Também empurra o valor para
-   * `app.casaAtual` na hora, para o resto da tela (que lê do estado
-   * reativo) ficar consistente sem esperar o snapshot chegar.
+   * Correção: estado próprio (`familiaEmGerenciamento`), com sua própria
+   * assinatura em tempo real ao Firestore, independente do escopo ativo.
+   * Cada família agora tem um botão de gerenciar direto na lista de
+   * famílias — não precisa mais "entrar" na família primeiro.
    */
-  async function abrirGerenciarFamilia(casa?: Household) {
-    const h = casa ?? app.casaAtual;
-    if (!h) return;
-    if (!app.casaAtual || app.casaAtual.id !== h.id) app.casaAtual = h;
-    convitesDaCasa = await listarConvites(repo, h.id);
+  let familiaEmGerenciamento = $state<Household | null>(null);
+  let desassinarFamiliaGerenciada: (() => void) | null = null;
+
+  async function abrirGerenciarFamilia(casa: Household) {
+    desassinarFamiliaGerenciada?.();
+    familiaEmGerenciamento = casa; // valor imediato; o listener abaixo mantém atualizado
+    desassinarFamiliaGerenciada = repo.households.watchHousehold(casa.id, (h) => {
+      familiaEmGerenciamento = h;
+    });
+    convitesDaCasa = await listarConvites(repo, casa.id);
     modalAberto = 'gerenciarFamilia';
   }
+
+  function fecharGerenciarFamilia() {
+    desassinarFamiliaGerenciada?.();
+    desassinarFamiliaGerenciada = null;
+    familiaEmGerenciamento = null;
+    modalAberto = null;
+  }
+
   async function aoConvidar(papel: 'editor' | 'viewer') {
-    if (!app.casaAtual || !app.usuario) return '';
-    const inv = await criarConvite(repo, app.casaAtual.id, app.usuario.uid, papel);
-    convitesDaCasa = await listarConvites(repo, app.casaAtual.id);
+    if (!familiaEmGerenciamento || !app.usuario) return '';
+    const inv = await criarConvite(repo, familiaEmGerenciamento.id, app.usuario.uid, papel);
+    convitesDaCasa = await listarConvites(repo, familiaEmGerenciamento.id);
     return inv.code;
   }
   async function aoRevogarConvite(codigo: string) {
     await revogarConvite(repo, codigo);
-    if (app.casaAtual) convitesDaCasa = await listarConvites(repo, app.casaAtual.id);
+    if (familiaEmGerenciamento) convitesDaCasa = await listarConvites(repo, familiaEmGerenciamento.id);
   }
   async function aoMudarPapel(uid: string, papel: any) {
-    if (!app.casaAtual) return;
-    await repo.households.setMemberRole(app.casaAtual.id, uid, papel);
+    if (!familiaEmGerenciamento) return;
+    await repo.households.setMemberRole(familiaEmGerenciamento.id, uid, papel);
   }
   async function aoRemoverMembro(uid: string) {
-    if (!app.casaAtual) return;
-    await repo.households.removeMember(app.casaAtual.id, uid);
+    if (!familiaEmGerenciamento) return;
+    await repo.households.removeMember(familiaEmGerenciamento.id, uid);
   }
   async function aoSairDaFamilia() {
-    if (!app.casaAtual || !app.usuario) return;
-    await sairDaFamilia(repo, app.casaAtual, app.usuario.uid);
-    modalAberto = null;
-    await aoEscolherEscopo({ kind: 'user', id: app.usuario.uid }, 'Minhas listas');
+    if (!familiaEmGerenciamento || !app.usuario) return;
+    const eraEscopoAtivo = app.escopo.owner.kind === 'household' && app.escopo.owner.id === familiaEmGerenciamento.id;
+    await sairDaFamilia(repo, familiaEmGerenciamento, app.usuario.uid);
+    fecharGerenciarFamilia();
+    if (eraEscopoAtivo) await aoEscolherEscopo({ kind: 'user', id: app.usuario.uid }, 'Minhas listas');
   }
 
   // ---------------- histórico / reativar ----------------
@@ -350,7 +449,7 @@
         lista={app.listaAtiva} itens={app.itensDaAtiva}
         ordens={app.perfil?.aisleOrders ?? {}} ocultarComprados={app.ocultarComprados}
         podeEditar={app.podeEditar} {nomeDe}
-        onToggle={aoAlternar} onRemover={aoRemover} onMover={aoMover}
+        onToggle={aoAlternar} onRemover={aoRemover} onMover={aoMover} onEditar={abrirEdicaoItem}
       />
       <div class="entrada-area">
         <EntradaRapida onAdicionar={aoAdicionar} conhecidos={app.perfil?.itemStats ?? {}} desabilitado={!app.podeEditar} />
@@ -358,14 +457,45 @@
           <button class="primaria" onclick={abrirModoCompra}>🛒 Modo compra</button>
           <button onclick={abrirFinalizarCompra}>✓ Finalizar compra</button>
         </div>
+        <div class="acoesSecundarias">
+          <button onclick={() => (modalAberto = 'moverLista')}>🔀 Mover lista</button>
+          <button onclick={abrirOrdemCorredores}>🧭 Corredores</button>
+          <button onclick={aoGerarPdf}>🧾 PDF</button>
+          <button onclick={aoCompartilhar}>🔗 Compartilhar</button>
+        </div>
       </div>
     {:else}
       <p class="vazio">Nenhuma lista ainda.</p>
     {/if}
   </main>
 
+  {#if toast}<div class="toast" role="status">{toast}</div>{/if}
+
   {#if modalAberto === 'novaLista'}
     <ModalNovaLista onCriar={aoCriarLista} onFechar={() => (modalAberto = null)} />
+  {:else if modalAberto === 'moverLista' && app.listaAtiva}
+    <ModalMoverLista
+      lista={app.listaAtiva} escopoPessoal={{ kind: 'user', id: app.usuario!.uid }}
+      nomePessoal="Minhas listas" minhasCasas={app.casas}
+      onMover={aoMoverLista} onFechar={() => (modalAberto = null)}
+    />
+  {:else if modalAberto === 'ordemCorredores' && app.listaAtiva}
+    <ModalOrdemCorredores
+      tituloLoja={app.listaAtiva.location?.value ? `no ${app.listaAtiva.location.value}` : 'no mercado'}
+      categorias={ordenarCategorias(
+        [...new Set([...CATEGORIAS_PADRAO, ...app.itensDaAtiva.map((i) => i.category).filter(Boolean)])],
+        app.perfil?.aisleOrders ?? {},
+        app.listaAtiva
+      )}
+      onSalvar={aoSalvarOrdemCorredores} onFechar={() => (modalAberto = null)}
+    />
+  {:else if modalAberto === 'editarItem' && itemEmEdicao}
+    <ModalEditarItem
+      item={itemEmEdicao}
+      categoriasConhecidas={app.itens.map((i) => i.category).filter(Boolean)}
+      onSalvar={aoSalvarEdicaoItem} onExcluir={aoExcluirDoEditor}
+      onFechar={() => { modalAberto = null; itemEmEdicao = null; }}
+    />
   {:else if modalAberto === 'checkout'}
     <ModalCheckout
       itens={app.itensDaAtiva} lojas={app.perfil?.stores ?? []}
@@ -389,12 +519,12 @@
       onEscolher={aoEscolherEscopo} onCriar={aoCriarFamilia} onEntrar={aoEntrarComConvite}
       onGerenciar={abrirGerenciarFamilia} onFechar={() => (modalAberto = null)}
     />
-  {:else if modalAberto === 'gerenciarFamilia' && app.casaAtual}
+  {:else if modalAberto === 'gerenciarFamilia' && familiaEmGerenciamento}
     <TelaGerenciarFamilia
-      household={app.casaAtual} uid={app.usuario!.uid} souDono={app.casaAtual.ownerUid === app.usuario!.uid}
+      household={familiaEmGerenciamento} uid={app.usuario!.uid} souDono={familiaEmGerenciamento.ownerUid === app.usuario!.uid}
       convites={convitesDaCasa} linkBase={location.origin + location.pathname}
       onConvidar={aoConvidar} onRevogar={aoRevogarConvite} onMudarPapel={aoMudarPapel}
-      onRemover={aoRemoverMembro} onSair={aoSairDaFamilia} onFechar={() => (modalAberto = null)}
+      onRemover={aoRemoverMembro} onSair={aoSairDaFamilia} onFechar={fecharGerenciarFamilia}
     />
   {:else if modalAberto === 'ocr'}
     <TelaCupomOCR onConfirmar={aoConfirmarOcr} onFechar={() => (modalAberto = null)} />
@@ -443,5 +573,17 @@
   .acoesLista { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
   .acoesLista button { flex: 1; font-family: var(--font-mono); font-weight: 700; font-size: 13px; padding: 12px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--card); min-height: var(--tap); }
   .acoesLista button.primaria { background: var(--green); color: #fff; border-color: var(--green); }
+  .acoesSecundarias { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
+  .acoesSecundarias button {
+    flex: 1; min-width: 120px; font-family: var(--font-mono); font-size: 11.5px;
+    padding: 9px; border-radius: var(--r-md); border: 1px solid var(--border);
+    background: var(--card); color: var(--ink-light); min-height: 38px;
+  }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--ink); color: var(--paper); font-family: var(--font-mono); font-size: 12.5px;
+    padding: 10px 18px; border-radius: var(--r-pill); z-index: 70; max-width: 90vw; text-align: center;
+    box-shadow: 0 8px 20px -6px rgba(0,0,0,0.4);
+  }
   .vazio { text-align: center; color: var(--ink-light); padding: var(--sp-6); }
 </style>
