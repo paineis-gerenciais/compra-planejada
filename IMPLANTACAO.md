@@ -1,148 +1,86 @@
-# Implantação — Compras (revisão desta rodada)
+# Implantação completa — Compras (revisão com correções críticas)
 
-Passo a passo completo para publicar a versão atual: correções de UX
-(nova lista, Gerenciar), indicador de família ativa, onboarding, ícones
-reais, mover lista entre escopos, ordem de corredores, edição avançada de
-item, PDF e compartilhamento. Se o projeto já está publicado e você só
-quer aplicar esta atualização, pule direto para a **Parte 3**.
+Passo a passo do zero ao ar, com todos os comandos exatos para o Prompt de
+Comando/PowerShell do Windows. Esta rodada corrige dois problemas que
+afetavam o app **em produção agora** (regras nunca publicadas de verdade, e
+o escopo pessoal consultando um dono que não existe) — por isso a Parte 2
+não é opcional, mesmo que você só queira "aplicar as novidades".
 
 ```
-PARTE 1   Diagnóstico do erro de CI visto no Pull Request
-PARTE 2   O que mudou nesta rodada (código)
-PARTE 3   Publicar a atualização
-PARTE 4   Publicar as regras do Firestore manualmente
-PARTE 5   Verificação pós-publicação
+PARTE 1   Corrigir a permissão da conta de serviço (resolve o Anexo 1)
+PARTE 2   Publicar as regras manualmente agora (resolve o Anexo 2 e o "Gerenciar")
+PARTE 3   Aplicar o código desta rodada
+PARTE 4   Publicar a atualização
+PARTE 5   Verificação completa
 ```
 
 ---
 
-## Parte 1 — Diagnóstico: por que o Pull Request mostrou "Failing"
+## Parte 1 — Corrigir a permissão da conta de serviço
 
-O print mostrava um check chamado **"Deploy to Firebase Hosting on PR /
-build_and_preview"** falhando, enquanto todos os checks do workflow que
-esta consultoria construiu (**"Deploy — Compra Planejada"** — `build_e_testes`,
-`publicar_preview`, e o "Deploy Preview" postado pela própria ação de
-deploy) apareciam **verdes**.
+**O que estava errado:** o job `publicar_regras_firestore` falhava com
+`403 The caller does not have permission` na chamada a
+`firebaserules.googleapis.com`. A conta de serviço usada pelo GitHub
+Actions foi criada (pelo `firebase init hosting:github`) só com o papel
+**Firebase Hosting Admin** — que publica o site, mas não publica regras do
+Firestore. Faltava um segundo papel na mesma conta.
 
-**Diagnóstico:** esse nome — "Deploy to Firebase Hosting on PR" com o job
-`build_and_preview` — não corresponde a nenhum workflow desta entrega.
-Ele é o nome padrão que o **próprio Firebase CLI gera automaticamente**
-quando se responde "sim" à pergunta "Set up automatic builds and deploys
-with GitHub?" durante o `firebase init hosting:github`. É bem provável
-que isso tenha acontecido numa das execuções desse comando (a orientação
-anterior era responder "não" a essa pergunta, exatamente para evitar
-duplicidade — mas o prompt pode ter sido respondido diferente, ou rodado
-mais de uma vez).
+### 1.1 Encontrar a conta de serviço
 
-**Resultado prático:** o repositório ficou com **dois workflows
-tentando publicar o mesmo site**. O seu (`deploy.yml`) funciona. O
-gerado automaticamente pelo Firebase CLI provavelmente falha porque o
-gerador padrão não sabe que este é um projeto Vite/Svelte com testes
-obrigatórios antes do build — ele assume uma estrutura genérica.
+1. [console.cloud.google.com](https://console.cloud.google.com) → selecionar o projeto **compra-planejada**
+2. Menu → **IAM e administrador** → **IAM**
+3. Localizar a conta que tem um nome parecido com
+   `github-action-XXXXXXXXXX@compra-planejada.iam.gserviceaccount.com`
+   (o mesmo nome que apareceu na mensagem de erro anterior, ao rodar
+   `firebase init hosting:github`)
 
-### Correção
+### 1.2 Adicionar o papel que falta
 
-- [ ] No repositório, verificar se existem estes dois arquivos (nomes
-      padrão do gerador do Firebase):
-      `.github/workflows/firebase-hosting-pull-request.yml`
-      `.github/workflows/firebase-hosting-merge.yml`
-- [ ] Se existirem, **apagar os dois** — o `deploy.yml` desta entrega já
-      cobre tudo o que eles fariam (preview em PR, produção no merge),
-      com o portão de qualidade que faltava neles
-- [ ] Confirmar que `.github/workflows/` fica só com `deploy.yml`
-- [ ] Commit e push — o check "Deploy to Firebase Hosting on PR" deve
-      parar de aparecer nos próximos Pull Requests
+1. Clicar no ícone de lápis (editar) na linha dessa conta
+2. **Adicionar outro papel**
+3. Buscar e selecionar: **Firebase Rules Admin** (`roles/firebaserules.admin`)
+4. Também adicionar: **Cloud Datastore Index Admin** (`roles/datastore.indexAdmin`) — necessário para publicar `firestore.indexes.json`, um passo que nem chegou a ser tentado porque a etapa anterior (regras) já falhava antes
+5. **Salvar**
 
-```powershell
-Remove-Item .github\workflows\firebase-hosting-pull-request.yml -ErrorAction SilentlyContinue
-Remove-Item .github\workflows\firebase-hosting-merge.yml -ErrorAction SilentlyContinue
-git add -A
-git commit -m "Remove workflow duplicado gerado pelo Firebase CLI"
-git push origin main
-```
+- [ ] Conta de serviço agora tem pelo menos três papéis: Firebase Hosting
+      Admin, Firebase Rules Admin, Cloud Datastore Index Admin
 
-> Esta é a explicação mais provável dado o nome exato do check que
-> falhou — não foi possível confirmar lendo o log de erro em si, então
-> se depois de remover esses arquivos o problema persistir, o próximo
-> passo é abrir o log da execução falha no GitHub (Actions → o run
-> vermelho → clicar no job → expandir o passo com o X) e copiar a
-> mensagem de erro exata.
+> **Alternativa mais simples, se preferir não gerenciar papéis um a um:**
+> em vez dos três papéis específicos, adicionar um único papel amplo,
+> **Firebase Admin** (`roles/firebase.admin`), que cobre tudo isso e
+> qualquer necessidade futura de CI/CD do projeto. Para um projeto
+> pessoal, é a opção mais simples de manter — menos preciso em termos de
+> privilégio mínimo, mas sem risco de faltar permissão de novo a cada
+> funcionalidade nova.
+
+**Critério de saída:** a conta de serviço tem permissão para publicar
+regras e índices, não só o site.
 
 ---
 
-## Parte 2 — O que mudou nesta rodada
+## Parte 2 — Publicar as regras manualmente agora
 
-### Correções
+**Por que isso é urgente, não só um passo de rotina:** como o CI nunca
+conseguiu publicar as regras (Parte 1), é bem provável que as regras
+publicadas hoje no Firestore **não sejam a versão do projeto — sejam
+regras antigas, incompletas, ou o padrão restritivo que o Firebase cria
+sozinho.** Isso explica todos os erros do Anexo 2 (`Missing or
+insufficient permissions` em `watchLists`, `watchPrices`, `watchPurchases`,
+`watchMyHouseholds`): o aplicativo pode estar perfeito e ainda assim não
+funcionar, porque o que está de guarda no banco de dados é outra coisa.
 
-| Problema relatado | Causa raiz | Correção |
-|---|---|---|
-| Sem botão de nova lista | Nunca existiu — `.abas` só listava o que já havia | `ModalNovaLista.svelte` + botão tracejado no cabeçalho |
-| "Gerenciar" não funcionava (persistiu após correção anterior) | O botão só aparecia dentro da família **já ativa como escopo**, e a correção anterior ainda dependia de um estado (`app.casaAtual`) compartilhado com "qual lista estou vendo" | Estado próprio (`familiaEmGerenciamento`) com assinatura independente; botão de gerenciar direto em cada linha da lista de famílias, sem precisar trocar de escopo antes |
-
-### Funcionalidades novas
-
-| Funcionalidade | Como acessar |
-|---|---|
-| Indicador de família ativa | Pílula no cabeçalho, sempre visível |
-| Onboarding no primeiro acesso | Automático, uma vez por aparelho |
-| **Mover lista entre pessoal e família** | Botão "🔀 Mover lista" abaixo da lista ativa |
-| **Ordem dos corredores por mercado** | Botão "🧭 Corredores" abaixo da lista ativa |
-| **Edição avançada de item** | Ícone ✎ em cada item (unidade por seletor, categoria, preço) |
-| **Gerar PDF** | Botão "🧾 PDF" abaixo da lista ativa |
-| **Compartilhar como texto (WhatsApp)** | Botão "🔗 Compartilhar" — abre o seletor nativo do celular quando disponível; copia para a área de transferência como alternativa |
-| Ícone do app | Substituído pelos arquivos enviados (fundo verde, recibo com check) |
-| Nome do PWA | Padronizado como "Compras" (`name` e `short_name` no manifest) |
-
-### Verificação local antes de publicar
-
-```powershell
-npm run verificar
-```
-
-- [ ] `svelte-check found 0 errors`
-- [ ] **118 passed** (eram 113 — 5 testes novos: 4 de compartilhamento como texto, mais os já existentes de onboarding)
-- [ ] build sem erro
-
----
-
-## Parte 3 — Publicar a atualização
+Publicar manualmente, com a sua conta de dono do projeto (que já tem
+todas as permissões), resolve isso **imediatamente**, sem esperar o CI:
 
 ```powershell
 cd "C:\Projetos\Compra Planejada\compra-planejada"
 
-git add -A
-git commit -m "Corrige nova lista e Gerenciar; adiciona mover lista, corredores, edição avançada, PDF e compartilhar; ícones reais; onboarding"
-git push origin main
-```
+firebase login
 
-- [ ] Aba **Actions** → workflow "Deploy — Compra Planejada" verde
-      (`build_e_testes`, `publicar_producao`, `publicar_regras_firestore`)
-- [ ] Nenhum check "Deploy to Firebase Hosting on PR" aparece mais (Parte 1)
+firebase use compra-planejada
 
----
-
-## Parte 4 — Publicar as regras do Firestore manualmente
-
-Esta rodada não mudou `firestore.rules` nem `firestore.indexes.json` — as
-funcionalidades novas (mover lista, ordem de corredores, edição de item)
-usam permissões que já existiam (`lists`, `items`, `users`). Não é
-obrigatório publicar regras desta vez. Ainda assim, o comando fica
-registrado aqui porque é de uso recorrente — sempre que uma mudança futura
-tocar nas regras, ou para desbloquear um erro de permissão sem esperar o
-CI:
-
-```powershell
 firebase deploy --only firestore:rules,firestore:indexes --project compra-planejada
 ```
-
-Não builda o app, não sobe nada para o GitHub — publica só as regras e os
-índices, direto no projeto.
-
-**Pré-requisitos:**
-- [ ] `firebase login` feito nesta máquina
-- [ ] `.firebaserc` na pasta do projeto apontando para `compra-planejada`
-      (se der erro `Not in a Firebase app directory`, rode
-      `firebase use compra-planejada` primeiro)
 
 **Saída esperada:**
 
@@ -159,49 +97,129 @@ i  firestore: deploying indexes...
 ✔  Deploy complete!
 ```
 
-**Confirmação:** Console do Firebase → **Firestore Database → Regras**
-(data de publicação atualizada) e → **Índices** (status **Ativado**; se
-mostrar "Compilando", aguarde antes de testar no app — índice em
-construção pode fazer consultas falharem ou travarem em silêncio).
+- [ ] Console do Firebase → **Firestore Database → Regras** → data de
+      publicação atualizada para agora
+- [ ] **Firestore Database → Índices** → todos com status **Ativado**
+      (se aparecer "Compilando", aguardar antes de seguir — pode levar de
+      minutos a algumas horas)
+
+**Teste imediato, antes de continuar:** recarregue o app publicado
+(`https://compra-planejada.web.app`) e abra o Console do navegador (F12).
+Os erros `Missing or insufficient permissions` devem sumir. Se ainda
+aparecerem depois deste passo, o problema não é mais as regras — é a
+Parte 3 (o código do escopo) que ainda não foi publicada.
 
 ---
 
-## Parte 5 — Verificação pós-publicação
+## Parte 3 — Aplicar o código desta rodada
 
-Abrir `https://compra-planejada.web.app` (ou o domínio configurado) e
-conferir, nesta ordem:
+### O que mudou
 
-- [ ] Ícone e nome corretos ao instalar o PWA (fundo verde, "Compras")
-- [ ] Primeiro acesso num navegador anônimo/aparelho novo mostra o
-      onboarding de 4 passos
-- [ ] Pílula de escopo no cabeçalho mostra "Minhas listas" ou o nome da
-      família corretamente
-- [ ] Botão "+" no cabeçalho abre o modal de nova lista e cria de verdade
-- [ ] Numa família: abrir "Listas compartilhadas", tocar no ícone ⚙️ de
-      **qualquer** família da lista (não precisa estar com ela ativa) —
-      o modal de gerenciamento abre
-- [ ] "Mover lista" lista os destinos corretos e move de verdade (conferir
-      que os itens continuam lá depois de mover)
-- [ ] "Corredores" abre com as categorias da lista atual, reordena e salva
-- [ ] Tocar no ✎ de um item abre a edição avançada; salvar reflete na lista
-- [ ] "PDF" baixa um arquivo com os itens agrupados por categoria
-- [ ] "Compartilhar" abre o seletor do celular (ou copia o texto no
-      desktop) com a lista formatada, itens marcados `[x]`/`[ ]`
-- [ ] F12 → Console → sem erro vermelho em nenhum dos fluxos acima
+| Problema relatado | Causa raiz encontrada | Correção |
+|---|---|---|
+| Erros de permissão no console (Anexo 2) | **Bug crítico**: `app.escopo` nascia com um `owner.id` de valor `'local'` (placeholder) e nunca era atualizado com o uid real depois do login. Toda consulta no escopo "Minhas listas" pedia dados de um dono que não existe, e as regras (corretas!) recusavam | `App.svelte` agora sincroniza `app.escopo` com o uid real no login e no logout |
+| "Gerenciar" ainda não abria | Consequência do bug acima: um `await` sem tratamento dentro de `abrirGerenciarFamilia` travava a função (por causa do erro de permissão) antes de o modal ser aberto | Modal abre primeiro; busca de convites agora tem `try/catch` — uma falha ali não impede mais o modal de abrir |
+| Deploy de regras falhando no CI (Anexo 1) | Conta de serviço sem o papel necessário | Ver Parte 1 (ação fora do código, no Console do Google Cloud) |
+
+### Funcionalidades novas
+
+| Funcionalidade | Como usar |
+|---|---|
+| **Sair da conta** | Ícone 👤 no cabeçalho → "Sair da conta" |
+| **Arrastar e soltar** para reordenar itens e corredores | Ícone ⠿ em cada linha — os botões ▲▼ continuam existindo como alternativa acessível por teclado/leitor de tela |
+
+### Verificação local antes de publicar
+
+```powershell
+npm install
+npm run verificar
+```
+
+- [ ] `svelte-check found 0 errors`
+- [ ] **132 passed** (eram 118 — 11 testes novos de arrastar/soltar, 3 de sair da conta indiretamente cobertos pelos existentes)
+- [ ] build sem erro
+
+> `npm install` está listado explicitamente aqui, e não como um passo
+> implícito: esta consultoria já causou confusão antes ao presumir que
+> "atualizar os arquivos" incluía atualizar dependências. Sempre rode
+> `npm install` antes de `npm run verificar` quando aplicar uma entrega
+> nova — o `package.json` pode ter ganhado uma biblioteca nova (aconteceu
+> com `tesseract.js` e depois com `jspdf`) que só é baixada nesse passo.
+
+---
+
+## Parte 4 — Publicar a atualização
+
+```powershell
+git add -A
+git commit -m "Corrige escopo pessoal com uid real, Gerenciar, adiciona sair da conta e arrastar-soltar"
+git push origin main
+```
+
+- [ ] Aba **Actions** → workflow "Deploy — Compra Planejada" verde nos
+      quatro jobs (`build_e_testes`, `publicar_producao`,
+      `publicar_regras_firestore`)
+- [ ] Desta vez `publicar_regras_firestore` também deve ficar verde —
+      é o teste de que a Parte 1 funcionou
+
+---
+
+## Parte 5 — Verificação completa
+
+Abrir `https://compra-planejada.web.app`, de preferência num navegador
+anônimo/aparelho ainda não testado, e conferir nesta ordem:
+
+- [ ] Login funciona sem erro
+- [ ] **A tela inicial já mostra as listas que você criou antes** —
+      este era o sintoma do bug do escopo; se ainda aparecer vazio,
+      confira se a Parte 2 e a Parte 3 foram realmente aplicadas
+- [ ] Botão "+" aparece no cabeçalho e cria lista nova
+- [ ] F12 → Console → **sem nenhum erro `Missing or insufficient
+      permissions`**
+- [ ] Ícone 👤 → mostra nome/e-mail da conta → "Sair da conta" funciona e
+      volta para a tela de login
+- [ ] Entrar de novo → listas continuam lá
+- [ ] Numa família: tocar no ⚙️ de qualquer família da lista (sem
+      precisar estar com ela ativa) → o modal de gerenciamento abre
+- [ ] Arrastar um item pelo ⠿ para outra posição dentro da categoria —
+      a ordem persiste depois de recarregar a página
+- [ ] Arrastar uma categoria no modal "Corredores" — mesma verificação
+- [ ] Os botões ▲▼ ainda funcionam como alternativa (teste ao menos uma
+      vez com o teclado, tabulando até o botão e apertando Enter)
+- [ ] "Mover lista", "PDF", "Compartilhar", edição de item (✎) — todos
+      continuam funcionando (regressão da rodada anterior)
 
 ---
 
 ## Reversão
 
-Se algo quebrar depois do push:
-
+**Código:**
 ```powershell
 git revert HEAD --no-edit
 git push origin main
 ```
 
-O workflow publica a versão revertida automaticamente. Nenhum passo desta
-rodada altera dados existentes no Firestore — mover lista muda o campo
-`owner` do documento (reversível, os itens não são tocados), e as demais
-funcionalidades são leitura/escrita normal já coberta pelas regras
-existentes.
+**Regras:** só reverta se a Parte 2 tiver causado um problema novo — o
+que seria incomum, já que as regras publicadas são as mesmas que já
+existiam no repositório, só que agora realmente chegando ao Firestore.
+Se precisar, republique a versão anterior do `firestore.rules` pelo
+mesmo comando da Parte 2.
+
+**Nada nesta rodada apaga dados.** O bug do escopo fazia o app *não
+encontrar* listas que já existiam — ele nunca as excluiu. Depois da
+correção, elas voltam a aparecer normalmente.
+
+---
+
+## Resumo de uma tela
+
+| Parte | O que resolve | Onde é feito | Obrigatória? |
+|---|---|---|---|
+| 1 · IAM | Anexo 1 (CI falhando) | Console do Google Cloud | Sim, para o CI voltar a funcionar |
+| 2 · publicar regras manualmente | Anexo 2 (permissões no app) | Terminal, agora | **Sim, imediatamente** — é a causa mais provável do app não funcionar hoje |
+| 3 · aplicar código | Escopo com uid errado, Gerenciar, + 2 funcionalidades novas | Terminal | Sim |
+| 4 · publicar | Leva tudo para produção | `git push` | Sim |
+| 5 · verificação | Confirma que resolveu de verdade | Navegador | Sim |
+
+**Se você só puder fazer uma coisa agora:** rode a Parte 2. É provável
+que ela sozinha resolva a maior parte dos sintomas visíveis hoje.

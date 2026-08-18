@@ -83,6 +83,23 @@ export async function moverItem(
   await repo.items.updateItem(item.listId, item.id, { position: posicaoEntre(anterior, seguinte) });
 }
 
+/**
+ * Arrastar e soltar: move o item para o lugar exato onde a lista
+ * `novaOrdemDoGrupo` (já reordenada no cliente, ver `dragReorder.ts`)
+ * diz que ele deveria estar, usando os vizinhos daquela posição para
+ * calcular a nova posição esparsa — reaproveita `posicaoEntre`, a mesma
+ * função usada por `moverItem`. Só o item arrastado é reescrito.
+ */
+export async function moverItemParaIndice(
+  repo: Repository, item: Item, novaOrdemDoGrupo: Item[]
+): Promise<void> {
+  const indice = novaOrdemDoGrupo.findIndex((i) => i.id === item.id);
+  if (indice < 0) return;
+  const anterior = indice > 0 ? novaOrdemDoGrupo[indice - 1]! : null;
+  const seguinte = novaOrdemDoGrupo[indice + 1] ?? null;
+  await repo.items.updateItem(item.listId, item.id, { position: posicaoEntre(anterior, seguinte) });
+}
+
 export interface DadosDeFinalizacao {
   store: string | null;
   actualTotal: number | null;

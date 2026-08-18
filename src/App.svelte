@@ -30,6 +30,7 @@
   import ModalMoverLista from './lib/ui/ModalMoverLista.svelte';
   import ModalOrdemCorredores from './lib/ui/ModalOrdemCorredores.svelte';
   import ModalEditarItem from './lib/ui/ModalEditarItem.svelte';
+  import ModalConta from './lib/ui/ModalConta.svelte';
 
   import { deveMostrarOnboarding, marcarOnboardingVisto } from './lib/servicos/onboarding';
   import { gerarPdfDaLista } from './lib/servicos/pdf';
@@ -38,7 +39,7 @@
   import { CATEGORIAS_PADRAO } from './lib/domain/categorize';
 
   import {
-    adicionarItens, alternarComprado, criarLista, moverItem,
+    adicionarItens, alternarComprado, criarLista, moverItem, moverItemParaIndice,
     finalizarCompra, carregarPendentes, moverListaDeEscopo, registrarLoja
   } from './lib/servicos/listas';
   import {
@@ -56,7 +57,7 @@
   let carregandoSessao = $state(!!firebase);
 
   // ---------------- modais visíveis ----------------
-  let modalAberto = $state<null | 'checkout' | 'historico' | 'precos' | 'familias' | 'gerenciarFamilia' | 'ocr' | 'insights' | 'finalizarPendentes' | 'novaLista' | 'moverLista' | 'ordemCorredores' | 'editarItem'>(null);
+  let modalAberto = $state<null | 'checkout' | 'historico' | 'precos' | 'familias' | 'gerenciarFamilia' | 'ocr' | 'insights' | 'finalizarPendentes' | 'novaLista' | 'moverLista' | 'ordemCorredores' | 'editarItem' | 'conta'>(null);
   let itensParaFinalizar = $state<Item[]>([]);
   let dadosCheckout: { store: string | null; actualTotal: number | null } | null = $state(null);
   let convitesDaCasa = $state<ConviteVisivel[]>([]);
@@ -86,13 +87,45 @@
         semConta = false;
         repo = new FirestoreRepository(firebase.db);
         app.usuario = { uid: user.uid, nome: user.displayName ?? user.email?.split('@')[0] ?? 'Você', email: user.email };
+        /**
+         * BUG CRÍTICO CORRIGIDO: `app.escopo` nascia com `owner.id: 'local'`
+         * (valor inicial do store) e nada aqui o atualizava com o uid real
+         * depois do login — só era trocado quando a pessoa mexia no
+         * seletor de família manualmente. Resultado: toda consulta ao
+         * Firestore no escopo pessoal ("Minhas listas") procurava listas
+         * do dono `'local'`, que não existe para uma conta de verdade.
+         * Isso derrubava o botão de nova lista (a checagem de permissão
+         * comparava `'local'` com o uid real), escondia todas as listas
+         * já criadas, e é causa direta de parte dos erros "Missing or
+         * insufficient permissions" no console — a regra exige
+         * `owner.id == request.auth.uid`, e a consulta pedia por outro id.
+         */
+        if (app.escopo.owner.kind === 'user' && app.escopo.owner.id !== user.uid) {
+          app.escopo = { owner: { kind: 'user', id: user.uid }, nome: 'Minhas listas' };
+        }
         await tentarMigrarV4(user.uid);
         app.conectar(repo);
       } else if (semConta) {
         repo = memRepo;
         app.usuario = { uid: 'local', nome: 'Você', email: null };
+        if (app.escopo.owner.kind === 'user' && app.escopo.owner.id !== 'local') {
+          app.escopo = { owner: { kind: 'user', id: 'local' }, nome: 'Minhas listas' };
+        }
         app.conectar(repo);
         garantirListaInicial();
+      } else {
+        /**
+         * BUG LATENTE, corrigido junto com o botão "Sair da conta": sem
+         * isto, um logout de verdade nunca limpava `app.usuario`, então a
+         * condição que mostra a tela de login (`!app.usuario &&
+         * !semConta`) nunca virava verdadeira de novo — o sign-out
+         * pareceria não fazer nada visualmente.
+         */
+        app.desconectar();
+        desassinarItens?.();
+        desassinarItens = null;
+        app.usuario = null;
+        app.escopo = { owner: { kind: 'user', id: 'local' }, nome: 'Minhas listas' };
       }
       carregandoSessao = false;
     });
@@ -129,6 +162,22 @@
     garantirListaInicial();
   }
 
+  async function aoSairDaConta() {
+    modalAberto = null;
+    if (semConta) {
+      // "sem conta" não tem sessão do Firebase — só reseta o estado local
+      semConta = false;
+      app.desconectar();
+      desassinarItens?.();
+      desassinarItens = null;
+      app.usuario = null;
+      app.escopo = { owner: { kind: 'user', id: 'local' }, nome: 'Minhas listas' };
+      return;
+    }
+    if (!firebase) return;
+    await sairDaConta(firebase.auth); // o listener de sessão cuida do resto
+  }
+
   $effect(() => {
     const id = app.listaAtiva?.id ?? null;
     desassinarItens?.();
@@ -162,6 +211,10 @@
   const aoRemover = (i: Item) => repo.items.deleteItem(i.listId, i.id);
   const aoMover = (i: Item, d: -1 | 1) =>
     moverItem(repo, i, app.itensDaAtiva.filter((x) => x.category === i.category), d);
+  /** NOVO: arrastar e soltar — `Recibo.svelte` já recalcula a ordem
+   *  visual do grupo inteiro; aqui só persiste a posição do item movido. */
+  const aoArrastar = (item: Item, novaOrdemDoGrupo: Item[]) =>
+    moverItemParaIndice(repo, item, novaOrdemDoGrupo);
 
   /** BUG CORRIGIDO: não existia nenhum jeito de criar uma segunda lista —
    *  a `.abas` do cabeçalho só listava as que já existiam. */
@@ -321,8 +374,18 @@
     desassinarFamiliaGerenciada = repo.households.watchHousehold(casa.id, (h) => {
       familiaEmGerenciamento = h;
     });
-    convitesDaCasa = await listarConvites(repo, casa.id);
+    // Abre o modal ANTES de buscar os convites: se a leitura de convites
+    // falhar (rede, permissão), a pessoa ainda vê a família e os membros —
+    // uma falha ali não pode mais impedir o modal de abrir, como
+    // acontecia antes (o `await` sem tratamento travava a função inteira
+    // antes de `modalAberto` ser definido).
     modalAberto = 'gerenciarFamilia';
+    try {
+      convitesDaCasa = await listarConvites(repo, casa.id);
+    } catch (e) {
+      console.error('Não foi possível carregar os convites', e);
+      convitesDaCasa = [];
+    }
   }
 
   function fecharGerenciarFamilia() {
@@ -405,7 +468,10 @@
   <TelaOnboarding onConcluir={() => { marcarOnboardingVisto(); mostrarOnboarding = false; }} />
 {:else}
   <header>
-    <h1><span class="ponto">●</span> Compra Planejada</h1>
+    <div class="linhaTitulo">
+      <h1><span class="ponto">●</span> Compra Planejada</h1>
+      <button class="contaBtn" title="Sua conta" aria-label="Sua conta" onclick={() => (modalAberto = 'conta')}>👤</button>
+    </div>
     <button
       class="escopoPill"
       title={semConta ? undefined : 'Trocar entre suas listas e famílias'}
@@ -449,7 +515,7 @@
         lista={app.listaAtiva} itens={app.itensDaAtiva}
         ordens={app.perfil?.aisleOrders ?? {}} ocultarComprados={app.ocultarComprados}
         podeEditar={app.podeEditar} {nomeDe}
-        onToggle={aoAlternar} onRemover={aoRemover} onMover={aoMover} onEditar={abrirEdicaoItem}
+        onToggle={aoAlternar} onRemover={aoRemover} onMover={aoMover} onEditar={abrirEdicaoItem} onArrastar={aoArrastar}
       />
       <div class="entrada-area">
         <EntradaRapida onAdicionar={aoAdicionar} conhecidos={app.perfil?.itemStats ?? {}} desabilitado={!app.podeEditar} />
@@ -471,7 +537,9 @@
 
   {#if toast}<div class="toast" role="status">{toast}</div>{/if}
 
-  {#if modalAberto === 'novaLista'}
+  {#if modalAberto === 'conta'}
+    <ModalConta nome={app.usuario?.nome ?? ''} email={app.usuario?.email ?? null} {semConta} onSair={aoSairDaConta} onFechar={() => (modalAberto = null)} />
+  {:else if modalAberto === 'novaLista'}
     <ModalNovaLista onCriar={aoCriarLista} onFechar={() => (modalAberto = null)} />
   {:else if modalAberto === 'moverLista' && app.listaAtiva}
     <ModalMoverLista
@@ -542,6 +610,11 @@
   header { position: sticky; top: 0; z-index: var(--z-header); background: var(--paper); border-bottom: 1px solid var(--border); padding: var(--sp-3) var(--sp-4); }
   h1 { font-family: var(--font-mono); font-size: var(--fs-lg); letter-spacing: var(--tracking-stamp); margin: 0 0 var(--sp-2); }
   .ponto { color: var(--green); }
+  .linhaTitulo { display: flex; align-items: center; justify-content: space-between; }
+  .contaBtn {
+    width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--card); font-size: 14px; margin-bottom: var(--sp-2); flex-shrink: 0;
+  }
 
   .escopoPill {
     display: inline-flex; align-items: center; gap: 7px; max-width: 100%;

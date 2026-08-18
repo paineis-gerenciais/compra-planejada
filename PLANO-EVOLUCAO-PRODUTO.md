@@ -1,8 +1,8 @@
 # Compra Planejada — Plano de Evolução do Produto
 ### Parecer de consultoria multidisciplinar (UX · Engenharia · Produto · Qualidade)
 
-**Revisão 7** — correção definitiva do bug "Gerenciar" (o problema era estrutural, não só o parâmetro descartado); mover lista entre escopos, ordem de corredores e edição avançada de item ganharam interface; PDF e compartilhamento (WhatsApp) portados da v4; ícones reais aplicados; workflow duplicado do Firebase CLI diagnosticado
-**Base:** v5 completa (Svelte + TypeScript, 118 testes, build ~238 KB gzip no bundle principal + PDF em chunk lazy de ~177 KB gzip)
+**Revisão 8** — bug crítico corrigido: escopo pessoal consultava um dono inexistente desde o login, explicando a maior parte dos erros de permissão em produção; regras do Firestore nunca tinham sido publicadas de verdade por falta de permissão da conta de serviço no CI; arrastar e soltar substituiu os botões como interação principal (mantidos como alternativa acessível); botão de sair da conta
+**Base:** v5 completa (Svelte + TypeScript, 132 testes, build ~239 KB gzip no bundle principal + PDF em chunk lazy de ~130 KB gzip)
 **Data:** agosto de 2026
 
 ---
@@ -26,6 +26,7 @@ lógica existia, a ponte até o botão não.
 | Sincronização em tempo real entre aparelhos (Firestore real) | ✅ |
 | Persistência offline (fila local, sobe ao reconectar) | ✅ |
 | **Onboarding no primeiro acesso** (4 passos, uma vez por aparelho) | ✅ **novo nesta rodada** |
+| **Sair da conta** | ✅ **novo nesta rodada** — corrige de brinde um bug latente: sem isso, um logout de verdade nunca fazia a tela de login voltar a aparecer |
 
 ### Listas
 
@@ -47,7 +48,7 @@ lógica existia, a ponte até o botão não.
 | Ditado por voz | ✅ (onde o navegador suporta) |
 | Categorização automática (dicionário de ~300 produtos br-PT) | ✅ |
 | Consolidação de duplicados (mesma unidade, não comprado) | ✅ |
-| Reordenar itens (botões ↑↓) | ✅ |
+| **Reordenar itens** (arrastar e soltar; botões ↑↓ mantidos como alternativa acessível) | ✅ **arrastar adicionado nesta rodada** |
 | Marcar/desmarcar comprado | ✅ |
 | Remover item | ✅ |
 | Atribuir item a um membro da família | ✅ |
@@ -198,6 +199,56 @@ migração.
 ---
 
 ## 1. O que foi executado nesta rodada
+
+### ✅ Revisão 8 — bug crítico de escopo, permissões nunca publicadas, arrastar e soltar
+
+Esta rodada começou com três relatos de erro e terminou revelando que
+dois deles tinham a **mesma causa raiz**, e que essa causa era mais séria
+do que qualquer bug de interface corrigido até aqui.
+
+**O bug crítico.** `app.escopo` nascia com um `owner.id` de valor
+`'local'` (placeholder do estado inicial) e **nada no código o atualizava
+com o uid real depois do login** — só era trocado se a pessoa mexesse
+manualmente no seletor de família. Consequência: toda consulta no escopo
+"Minhas listas" pedia dados do dono `'local'`, que não existe para uma
+conta de verdade. As regras do Firestore (corretas, exigindo `owner.id ==
+request.auth.uid`) recusavam essas consultas — exatamente os erros
+`Missing or insufficient permissions` relatados. Esse mesmo bug também
+explicava por que a tela inicial não mostrava nem o botão de nova lista
+nem as listas já criadas: a checagem de permissão de edição comparava
+`'local'` com o uid real e sempre dava falso.
+
+**Publicação de regras nunca tinha funcionado de verdade.** Investigando
+o log de erro do CI (`403 The caller does not have permission` em
+`firebaserules.googleapis.com`), a causa foi a conta de serviço criada
+pelo `firebase init hosting:github` ter recebido só o papel **Firebase
+Hosting Admin** — que publica o site, mas não publica regras do
+Firestore. Isso significa que, até este ponto, **as regras publicadas em
+produção podem nunca ter sido a versão correta do projeto**. Corrigido em
+duas frentes: adicionar os papéis que faltam à conta de serviço (IAM,
+fora do código) e publicar manualmente uma vez com a conta de dono do
+projeto, para não depender do CI estar consertado para desbloquear a
+produção agora.
+
+**"Gerenciar" ainda não abria — última causa, agora sim.** Era
+consequência direta do bug de escopo: um `await` sem tratamento dentro de
+`abrirGerenciarFamilia` travava a função no meio do caminho sempre que a
+leitura de convites falhasse por permissão — o que, com as regras
+efetivamente quebradas, acontecia sempre. Corrigido com o modal abrindo
+antes da busca de convites, e a busca protegida por `try/catch`.
+
+| Item | Entrega |
+|---|---|
+| Bug crítico do escopo pessoal | `App.svelte` sincroniza `app.escopo` com o uid real no login e no logout |
+| Bug latente de logout descoberto no caminho | Sem a correção, `app.usuario` nunca era limpo — um "sair" de verdade não fazia a tela de login voltar a aparecer |
+| Regras nunca publicadas com permissão correta | Documentado o papel IAM que faltava (`firebaserules.admin` + `datastore.indexAdmin`, ou `firebase.admin` como alternativa mais simples) |
+| "Gerenciar" — causa final | `try/catch` ao redor da busca de convites; modal abre antes |
+| **Sair da conta** | `ModalConta.svelte`, ícone 👤 no cabeçalho |
+| **Arrastar e soltar** | `dragReorder.ts` (função pura testada) + integração em `Recibo.svelte`/`ItemLinha.svelte` (itens) e `ModalOrdemCorredores.svelte` (corredores). **Os botões ▲▼ foram mantidos** como alternativa acessível — não removidos |
+| `moverItemParaIndice` | Novo serviço, reaproveita `posicaoEntre` (já testado) para persistir a posição exata depois do arrasto |
+
+Build após as mudanças: 0 erros de tipo, **132 testes** (eram 118 — 11
+novos de arrastar/soltar, 3 de reposicionamento via serviço).
 
 ### ✅ Revisão 7 — bug estrutural do "Gerenciar", 4 funcionalidades novas, ícones reais
 
@@ -386,34 +437,65 @@ dois itens novos: testes de integração e revisão de bundle).
 | ~~12~~ | ~~Sem indicador de família ativa~~ | ✅ feito (revisão 6) — pílula de escopo no cabeçalho |
 | ~~13~~ | ~~Sem onboarding no primeiro acesso~~ | ✅ feito (revisão 6) — `TelaOnboarding.svelte`, 4 passos, uma vez por aparelho |
 | ~~14~~ | ~~Nome do PWA divergente do nome do produto~~ | ✅ feito (revisão 6) — manifest padronizado para "Compras" |
-| ~~15~~ | ~~Ícone real do PWA~~ | ✅ **feito nesta rodada** — arquivos enviados aplicados diretamente |
-| ~~16~~ | ~~Ordem dos corredores sem tela~~ | ✅ **feito nesta rodada** — `ModalOrdemCorredores.svelte` |
-| **17** | **Novo:** geração de PDF | ✅ **feito nesta rodada** |
-| **18** | **Novo:** compartilhar lista como texto | ✅ **feito nesta rodada** |
-| **19** | **Novo:** mapa (buscar mercado / rota) | aberta, não portado da v4 |
-| **20** | **Novo:** workflow duplicado do Firebase CLI pode reaparecer se `firebase init hosting:github` for rodado de novo respondendo "sim" à criação de workflows | aberta — atenção documentada no runbook |
+| ~~15~~ | ~~Ícone real do PWA~~ | ✅ feito (revisão 7) — arquivos enviados aplicados diretamente |
+| ~~16~~ | ~~Ordem dos corredores sem tela~~ | ✅ feito (revisão 7) — `ModalOrdemCorredores.svelte` |
+| **17** | Geração de PDF | ✅ feito (revisão 7) |
+| **18** | Compartilhar lista como texto | ✅ feito (revisão 7) |
+| **19** | Mapa (buscar mercado / rota) | aberta, não portado da v4 |
+| **20** | Workflow duplicado do Firebase CLI pode reaparecer se `firebase init hosting:github` for rodado de novo respondendo "sim" à criação de workflows | aberta — atenção documentada no runbook |
+| ~~21~~ | ~~Escopo pessoal consultando um dono inexistente (`'local'`) depois do login~~ | ✅ **corrigido nesta rodada — era a causa raiz mais séria encontrada até agora**, afetando dados reais em produção, não só uma tela |
+| ~~22~~ | ~~Conta de serviço do CI sem permissão para publicar regras~~ | ✅ **diagnosticado e documentado nesta rodada** — correção em duas partes: ajuste de IAM (fora do código) e publicação manual imediata |
+| ~~23~~ | ~~Logout não limpava `app.usuario`~~ | ✅ **corrigido nesta rodada**, descoberto ao implementar o botão de sair |
+| **24** | **Novo:** confirmar que as regras publicadas manualmente na Parte 2 do runbook desta rodada continuam batendo com o `firestore.rules` do repositório depois do próximo deploy automático bem-sucedido | aberta — checagem de consistência, baixo risco |
+| **25** | **Novo:** arrastar e soltar não foi testado em iOS Safari real (só a lógica de posicionamento, via `MemoryRepository`) | aberta — Pointer Events têm suporte desigual entre navegadores móveis; vale um teste manual dedicado |
+
+---
+
+## 3.1 Lição de arquitetura desta rodada
+
+O bug crítico do escopo (item 21) é o exemplo mais caro do projeto até
+aqui de um padrão que já tinha aparecido em miniatura no bug do
+"Gerenciar": **estado inicial de placeholder que precisa ser substituído
+por um valor real em algum momento do ciclo de vida, e nada garantia que
+essa substituição acontecesse.** `app.escopo.owner.id = 'local'` nasceu
+como valor de conveniência para o modo sem conta, e ninguém escreveu o
+código que troca esse valor pelo uid real assim que existe um. O bug ficou
+invisível em testes automatizados porque `MemoryRepository` não tem
+regras de segurança — uma consulta por `owner.id: 'local'` simplesmente
+funciona ali, sem nada para reclamar. Só apareceu com o Firestore real,
+com regras reais, em produção.
+
+**A régua para não repetir isso:** todo campo de estado que existe como
+"valor inicial de conveniência" (um placeholder, um id fictício, um
+`null` tratado como caso especial) precisa ter, no mesmo commit, o código
+que o substitui pelo valor real — não depois, não "quando alguém notar".
+E funcionalidades que dependem de segurança de verdade (autenticação,
+regras) precisam ser verificadas contra uma implementação que **tenha**
+essas regras antes de ir para produção — testar só contra
+`MemoryRepository` não é suficiente para essa classe de bug.
 
 ---
 
 ## 4. Recomendação de sequência
 
-O corte direto já aconteceu (revisão 5) e o app está em produção. As duas
-rodadas seguintes (6 e 7) foram de estabilização pós-corte: bugs reais de
-uso descobertos com o produto no ar (nova lista ausente, Gerenciar
-quebrado duas vezes até a causa estrutural ser corrigida) e o fechamento
-de funcionalidades que existiam só pela metade (lógica pronta, interface
-faltando) — mover lista, corredores, edição de item — mais duas
-funcionalidades da v4 que ainda não tinham sido portadas (PDF,
-compartilhar).
+O corte direto já aconteceu (revisão 5) e o app está em produção. As
+rodadas seguintes (6, 7 e 8) foram de estabilização pós-corte — mas a
+revisão 8 mudou a categoria do que estava sendo estabilizado: não era
+mais só interface faltando, era **dado real potencialmente inacessível
+em produção** por um bug de sincronização entre o estado local e o uid
+autenticado, agravado por regras de segurança que talvez nunca tivessem
+sido publicadas corretamente.
 
-**A recomendação desta revisão:** com a paridade de funcionalidades
-essencialmente completa (só o mapa falta), o próximo passo de maior valor
-deixa de ser "portar mais uma tela" e passa a ser **observação de uso
-real por mais tempo**, antes de abrir os blocos I ou J. O padrão dos bugs
-desta rodada — funcionalidade que "existia" no código mas não tinha
-ponte até a interface — só aparece testando com gente de verdade, não em
-teste automatizado. Vale um período de uso ativo (você e famílias reais)
-antes do próximo bloco de escopo maior.
+**A recomendação desta revisão:** antes de qualquer coisa nova — bloco I,
+bloco J, ou até o mapa —, **confirmar em produção, com dados reais, que
+a Parte 5 do runbook (verificação completa) passa inteira.** O padrão que
+se repetiu três rodadas seguidas (nova lista, Gerenciar, e agora o
+escopo) é sempre o mesmo: um problema que testes automatizados não pegam
+porque `MemoryRepository` não reproduz regras de segurança nem a
+sincronização real de autenticação. Isso muda a prioridade do bloco J:
+**testes de integração contra o emulador do Firestore deixam de ser
+"melhoria de qualidade" e passam a ser a forma mais direta de prevenir a
+próxima rodada de "funciona nos testes, quebra em produção".**
 
 ```
 ✅ FEITO    Fase 3 completa · G · H1–H5 · E · F
@@ -422,13 +504,17 @@ antes do próximo bloco de escopo maior.
             Estabilização pós-corte: nova lista, Gerenciar (revisão 6 e 7)
             Mover lista, corredores, edição de item, PDF, compartilhar (revisão 7)
             Ícones reais aplicados
+            Bug crítico do escopo corrigido; regras publicadas de verdade;
+            arrastar e soltar; sair da conta (revisão 8)
 
-🔄 AGORA    Período de uso real antes do próximo bloco de escopo maior
+🔄 AGORA    Verificação completa em produção com dados reais (runbook Parte 5)
+            Confirmar que o CI publica regras sozinho depois do ajuste de IAM
             Validação de H3 (OCR) com cupons reais (não-código)
-            Atenção ao workflow duplicado do Firebase CLI (item 20)
 
-DEPOIS      Mapa (buscar mercado / rota)                      ~1 bloco
-            J · testes de integração, bundle, LGPD, push    5–6 blocos
+DEPOIS      Testes de integração com o emulador do Firestore — prioridade
+            subiu depois desta rodada, não é mais "ver bloco J" genérico
+            Mapa (buscar mercado / rota)                      ~1 bloco
+            J · restante (bundle, LGPD, push)                4–5 blocos
             I · lojas (Capacitor)                            3–4 blocos
 ```
 
@@ -510,20 +596,25 @@ verdade, porque não há mais nada "fictício" na lista de recursos pagos.
    indicador de família ativa, onboarding, ícones reais
    Mover lista, ordem de corredores, edição de item — interface completa
    PDF e compartilhamento (WhatsApp) portados da v4
+   Bug crítico do escopo pessoal corrigido (afetava dados reais em produção)
+   Regras do Firestore com a permissão de CI corrigida e republicadas
+   Arrastar e soltar (itens e corredores) + botão de sair da conta
 
 🔄 AGORA
-   Uso real por um período antes do próximo bloco de escopo maior
+   Verificação completa em produção com dados reais (runbook Parte 5)
+   Confirmar que o CI publica regras sozinho após o ajuste de IAM
    Validação de H3 (OCR) com cupons reais
    Atenção ao workflow duplicado do Firebase CLI, se reaparecer
 
 ⬜ DEPOIS
+   Testes de integração com o emulador do Firestore — prioridade subiu
    Mapa (buscar mercado / rota) — única tela ainda não portada da v4
-   J · testes de integração, bundle, LGPD, push
+   J · restante (bundle, LGPD, push)
    I · lojas
 ```
 
 **Em uma frase:** a paridade de funcionalidades com a v4 está
-essencialmente completa — falta só o mapa — e os bugs desta rodada
-mostram que o próximo passo de maior valor não é mais escrever código
-novo, é observar o produto em uso real, porque foi assim que "existe no
-código mas ninguém consegue alcançar" apareceu duas vezes seguidas.
+essencialmente completa, mas esta rodada mostrou que "funciona nos testes"
+e "funciona em produção com regras de segurança reais" são coisas
+diferentes — o próximo investimento de maior valor não é mais uma tela
+nova, é fechar essa lacuna entre os dois antes que ela apareça de novo.

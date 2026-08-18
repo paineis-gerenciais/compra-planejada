@@ -11,23 +11,25 @@
     atribuido?: string;
     primeiro?: boolean;
     ultimo?: boolean;
+    arrastando?: boolean;
     onToggle: (i: Item) => void;
     onRemover?: (i: Item) => void;
     onEditar?: (i: Item) => void;
     onMover?: (i: Item, d: -1 | 1) => void;
+    onArrastarInicio?: (e: PointerEvent) => void;
   }
 
   let {
     item, podeEditar = true, modoCompra = false,
     comprador = '', atribuido = '',
-    primeiro = false, ultimo = false,
-    onToggle, onRemover, onEditar, onMover
+    primeiro = false, ultimo = false, arrastando = false,
+    onToggle, onRemover, onEditar, onMover, onArrastarInicio
   }: Props = $props();
 
   const qtd = $derived(item.unit ? `${item.qty} ${item.unit}` : item.qty);
 </script>
 
-<div class="linha" class:comprado={item.bought} class:grande={modoCompra}>
+<div class="linha" class:comprado={item.bought} class:grande={modoCompra} class:arrastando>
   <button
     class="check"
     aria-pressed={item.bought}
@@ -62,7 +64,10 @@
   <span class="qtd">{qtd}</span>
 
   {#if podeEditar && !modoCompra}
-    <!-- Alternativa acessível ao arrastar: funciona com teclado e leitor de tela. -->
+    <!-- Arrastar é o caminho principal; os botões ▲▼ continuam existindo
+         de propósito — é a alternativa acessível por teclado e leitor de
+         tela, e este projeto já removeu suporte assim antes por engano. -->
+    <button class="alca" aria-label="Arrastar {item.name} para reordenar" onpointerdown={onArrastarInicio}>⠿</button>
     <span class="reordenar" role="group" aria-label="Reordenar {item.name}">
       <button aria-label="Mover {item.name} para cima" disabled={primeiro} onclick={() => onMover?.(item, -1)}>▲</button>
       <button aria-label="Mover {item.name} para baixo" disabled={ultimo} onclick={() => onMover?.(item, 1)}>▼</button>
@@ -79,6 +84,7 @@
   }
   .linha:last-child { border-bottom: none; }
   .linha.grande { align-items: center; padding: 13px 0; }
+  .linha.arrastando { opacity: 0.5; }
 
   .check {
     width: 26px; height: 26px; min-width: 26px; min-height: 26px;
@@ -122,6 +128,11 @@
     font-size: 10px; line-height: 1; padding: 3px 5px;
   }
   .reordenar button:disabled { opacity: 0.25; }
+
+  .alca {
+    background: none; border: none; color: var(--ink-light); font-size: 15px;
+    cursor: grab; padding: 4px 2px; flex-shrink: 0; touch-action: none; align-self: center;
+  }
 
   .acao {
     background: none; border: none; color: var(--ink-light);
