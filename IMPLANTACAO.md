@@ -204,9 +204,62 @@ commit vazio só para disparar o workflow: `git commit --allow-empty -m
       Planejada" rodando
 - [ ] Job `build_e_testes` verde (svelte-check + 109 testes + build)
 - [ ] Job `publicar_producao` verde
-- [ ] Job separado "Publicar regras do Firestore" também verde (dispara
-      porque `firestore.rules`/`firestore.indexes.json` estão no primeiro
-      commit)
+- [ ] Job `publicar_regras_firestore` também verde (roda em todo push em
+      `main`, sem depender de filtro de caminho alterado — ver nota
+      abaixo sobre por que não usamos mais `paths:`)
+
+> **Nota sobre a versão anterior deste workflow:** a primeira versão
+> publicava as regras num workflow separado, disparado só quando
+> `firestore.rules`/`firestore.indexes.json` mudavam (filtro `paths:`).
+> Esse filtro depende de o GitHub conseguir comparar contra um commit
+> anterior na mesma branch, e esse comportamento varia conforme como a
+> branch nasceu — é um dos cantos mais inconsistentes do GitHub Actions,
+> e não disparou no primeiro push real deste projeto. A correção: juntar
+> a publicação de regras como um job a mais dentro do mesmo
+> `deploy.yml`, disparado em todo push em `main`, sem condição de
+> caminho. Reenviar regras idênticas é praticamente instantâneo e não
+> tem efeito colateral, então não há custo em rodar sempre.
+
+### Publicar as regras manualmente, sem esperar o Actions
+
+Às vezes você só quer atualizar as regras do Firestore sem publicar o
+site — por exemplo, para testar uma mudança de regra isoladamente, ou
+para desbloquear um erro de permissão sem esperar o CI rodar. Um comando,
+direto do computador:
+
+```powershell
+firebase deploy --only firestore:rules,firestore:indexes --project compra-planejada
+```
+
+Não builda o app, não sobe nada para o GitHub — publica só
+`firestore.rules` e `firestore.indexes.json` direto no projeto.
+
+**Pré-requisitos** (normalmente já satisfeitos se você seguiu a Parte 3):
+- [ ] `firebase login` feito nesta máquina
+- [ ] `.firebaserc` na pasta do projeto apontando para `compra-planejada`
+      (se der erro `Not in a Firebase app directory`, rode
+      `firebase use compra-planejada` primeiro)
+
+**Saída esperada:**
+
+```
+=== Deploying to 'compra-planejada'...
+
+i  deploying firestore
+i  firestore: reading indexes from firestore.indexes.json...
+i  cloud.firestore: checking firestore.rules for compilation errors...
+✔  cloud.firestore: rules file firestore.rules compiled successfully
+i  firestore: uploading rules firestore.rules...
+i  firestore: deploying indexes...
+✔  firestore: deployed indexes in firestore.indexes.json successfully
+✔  Deploy complete!
+```
+
+**Confirmação:** Console do Firebase → **Firestore Database → Regras**
+(data de publicação atualizada) e → **Índices** (status **Ativado**; se
+mostrar "Compilando", aguarde antes de testar login ou listas no app —
+índice em construção pode fazer consultas falharem ou travarem em
+silêncio).
 
 ### Verificação no navegador
 

@@ -1,9 +1,166 @@
 # Compra Planejada — Plano de Evolução do Produto
 ### Parecer de consultoria multidisciplinar (UX · Engenharia · Produto · Qualidade)
 
-**Revisão 5** — publicação migrada de GitHub Pages para Firebase Hosting; app renomeado para Compra Planejada; repositório novo (compra-planejada)
-**Base:** v4 em produção (~4.400 linhas, 92 testes) + v5 completa (Svelte + TypeScript, 4.693 linhas, 109 testes, build 232 KB gzip)
+**Revisão 6** — correção de bugs de interface (nova lista, Gerenciar), indicador de família ativa, onboarding no primeiro acesso, padronização de nome do PWA, e inventário completo de funcionalidades
+**Base:** v5 completa (Svelte + TypeScript, 113 testes, build ~235 KB gzip)
 **Data:** agosto de 2026
+
+---
+
+## Funcionalidades — o que existe e o que está planejado
+
+Inventário completo, por área. "✅ Funciona" significa testado e com
+interface acessível ao usuário — não apenas implementado na camada de
+domínio. Onde a lógica existe mas falta interface, isso está dito
+explicitamente, porque essa distinção é exatamente o tipo de coisa que
+gera bugs como os dois desta rodada (nova lista, Gerenciar família): a
+lógica existia, a ponte até o botão não.
+
+### Contas e acesso
+
+| Funcionalidade | Situação |
+|---|---|
+| Login com Google | ✅ |
+| Login com e-mail/senha, com redefinição de senha | ✅ |
+| "Usar sem conta" (tudo local, sem sincronizar) | ✅ |
+| Sincronização em tempo real entre aparelhos (Firestore real) | ✅ |
+| Persistência offline (fila local, sobe ao reconectar) | ✅ |
+| **Onboarding no primeiro acesso** (4 passos, uma vez por aparelho) | ✅ **novo nesta rodada** |
+
+### Listas
+
+| Funcionalidade | Situação |
+|---|---|
+| **Criar lista nova** | ✅ **corrigido nesta rodada** — não existia botão nenhum |
+| Múltiplas listas simultâneas, alternáveis por abas | ✅ |
+| Lista recorrente (1/7/14/30 dias), renovação automática ao finalizar | ✅ |
+| **Indicador de família ativa no cabeçalho** | ✅ **novo nesta rodada** — antes não havia nenhuma indicação visível de qual escopo (pessoal ou qual família) estava ativo |
+| Mover lista entre pessoal e família | ⚠️ **existe e está testado na camada de serviço** (`moverListaDeEscopo`), **mas sem nenhum botão na interface** — código morto do ponto de vista do usuário |
+| Ordem dos corredores por mercado | ⚠️ lógica pronta e em uso (a lista já segue a ordem salva), **mas não há tela para o usuário definir essa ordem** |
+
+### Itens
+
+| Funcionalidade | Situação |
+|---|---|
+| Entrada rápida por texto ("2kg tomate") | ✅ |
+| Entrada em lote (colar várias linhas de uma vez) | ✅ |
+| Ditado por voz | ✅ (onde o navegador suporta) |
+| Categorização automática (dicionário de ~300 produtos br-PT) | ✅ |
+| Consolidação de duplicados (mesma unidade, não comprado) | ✅ |
+| Reordenar itens (botões ↑↓) | ✅ |
+| Marcar/desmarcar comprado | ✅ |
+| Remover item | ✅ |
+| Atribuir item a um membro da família | ✅ |
+| Sugestões de recompra ao criar lista | ✅ |
+| Edição avançada de item (unidade por seletor, etc.) | ⬜ não portado — hoje só a entrada rápida cobre isso |
+
+### Modo compra
+
+| Funcionalidade | Situação |
+|---|---|
+| Tela dedicada, alvo de toque grande, uso com uma mão | ✅ |
+| Wake Lock em três níveis (nativo → vídeo → aviso ao usuário) | ✅ |
+| Ocultar itens já comprados | ✅ |
+| Adicionar item sem sair do modo compra | ✅ |
+| Progresso e total gasto em tempo real | ✅ |
+| Indicador de quem mais está comprando agora (presença) | ✅ |
+
+### Finalizar compra
+
+| Funcionalidade | Situação |
+|---|---|
+| Checkout: valor pago + mercado (ambos puláveis) | ✅ |
+| Comparação com o total estimado | ✅ |
+| Itens pendentes → oferece criar lista nova com eles | ✅ |
+| Lista recorrente → renova automaticamente | ✅ |
+
+### Histórico
+
+| Funcionalidade | Situação |
+|---|---|
+| Lista de compras finalizadas | ✅ |
+| Detalhe de cada compra (itens por categoria, status) | ✅ |
+| Reativar compra (todos os itens ou só os pendentes) | ✅ |
+
+### Preços — inteligência de preço
+
+| Funcionalidade | Situação |
+|---|---|
+| Histórico de preço por item | ✅ |
+| Comparação de preço entre mercados | ✅ |
+| Gráfico de gasto por compra | ✅ |
+| Variação de preço (alta/queda) por item | ✅ |
+| **Leitura de cupom fiscal por foto (OCR)** com revisão manual assistida — nada grava sem confirmação item a item | ✅ |
+| Inflação pessoal (ponderada por frequência de compra) | ✅ |
+| Previsão de recompra (por intervalo médio entre compras) | ✅ |
+| Lista sugerida automaticamente (itens em atraso + frequentes) | ✅ — sempre como candidatos, nunca grava sozinha |
+| Validação de H3 (OCR) com cupons reais de mercado | ⬜ hoje só testado contra simulação; critério de sucesso (≥80%) verificado só em teste automatizado |
+
+### Colaboração familiar
+
+| Funcionalidade | Situação |
+|---|---|
+| Criar família | ✅ |
+| Convidar por código de 8 caracteres, verificado no servidor | ✅ |
+| Convite já criado com o papel definido (editor ou só leitura) | ✅ |
+| Revogar convite | ✅ |
+| Gerenciar membros (mudar papel, remover) | ✅ **bug de "não funciona" corrigido nesta rodada** |
+| Presença em tempo real (quem está no app, quem está comprando) | ✅ |
+| Sair da família / excluir família | ✅ |
+| Três papéis (responsável/editor/só leitura) com bloqueio real na interface e nas regras | ✅ |
+
+### PWA e instalação
+
+| Funcionalidade | Situação |
+|---|---|
+| Instalável como app | ✅ |
+| Funciona offline | ✅ (service worker registrado — corrigido na rodada anterior) |
+| Sincronização automática ao reconectar | ✅ |
+| Atalho de "Nova lista" pelo ícone do app instalado | ✅ |
+| **Nome padronizado como "Compras"** no manifest (nome/apelido) | ✅ **novo nesta rodada** |
+| **Ícone real do app** | ⬜ **pendente** — ver nota abaixo |
+
+> **Nota sobre o ícone:** o pedido foi usar "o ícone antigo do PWA", mas
+> esse arquivo nunca chegou a ser enviado nesta consultoria em nenhuma
+> rodada anterior — só existia como referência em texto no README
+> original, nunca como conteúdo binário recebido. O app está publicado
+> hoje com um ícone gerado no estilo visual "Cupom" (fundo verde, recibo
+> com linhas de item) como substituto funcional. Para usar o ícone
+> original de verdade, ele precisa ser enviado nesta conversa.
+
+### Qualidade e operação
+
+| Funcionalidade | Situação |
+|---|---|
+| 113 testes automatizados (domínio, repositório, migração, bloco H, onboarding) | ✅ |
+| Portão de qualidade no CI (svelte-check + testes) antes de qualquer deploy | ✅ |
+| Canal de preview isolado por Pull Request | ✅ |
+| Deploy automático em produção no merge | ✅ |
+| Publicação de regras do Firestore em todo push (sem depender de filtro de caminho) | ✅ |
+| Testes de integração contra o emulador do Firestore | ⬜ não iniciado |
+| Monitoramento de erro em produção (Sentry ou equivalente) | ⬜ não iniciado |
+| LGPD (política de privacidade, exportação/exclusão de conta) | ⬜ não iniciado |
+
+### Não portado da v4 (sem bloquear uso)
+
+Mapa (buscar mercado / rota), geração de PDF, compartilhar lista como
+texto. Nenhum afeta sincronização ou dados.
+
+### Planejado — próximos blocos do roadmap
+
+- **Bloco I (lojas):** Capacitor empacotando o PWA para as lojas de
+  aplicativo, notificações push de verdade (hoje só funcionam com o app
+  aberto em segundo plano), acesso nativo à câmera para o OCR.
+- **Bloco J (qualidade e operação):** testes de integração com o
+  emulador do Firestore, testes end-to-end (Playwright), monitoramento de
+  erro, analytics respeitoso de privacidade, LGPD completa, feature
+  flags, revisão do tamanho do bundle (~235 KB gzip, majoritariamente o
+  SDK do Firebase).
+- **Interfaces para lógica já existente:** tela de mover lista entre
+  pessoal e família, tela de configurar a ordem dos corredores, edição
+  avançada de item.
+- **Decisão de negócio pendente:** limite de membros por família no
+  plano grátis, antes de existirem famílias grandes em uso.
 
 ---
 
@@ -40,7 +197,31 @@ migração.
 
 ## 1. O que foi executado nesta rodada
 
-### ✅ Bloco E — Reestruturação técnica (completa)
+### ✅ Revisão 6 — correções de UX e onboarding
+
+| Item | Entrega |
+|---|---|
+| Botão de nova lista | `ModalNovaLista.svelte` — nome, recorrência, frequência; botão tracejado ao fim das abas |
+| Bug do "Gerenciar" | Causa raiz: `abrirGerenciarFamilia` descartava o argumento recebido, dependia de estado assíncrono que nem sempre chegava a tempo. Corrigido para usar o valor recebido diretamente |
+| Indicador de família ativa | Pílula no cabeçalho (avatar + nome do escopo), sempre visível, abre o seletor ao tocar |
+| Onboarding no primeiro acesso | `TelaOnboarding.svelte`, 4 passos, `onboarding.ts` testável (4 testes novos), guardado por aparelho no `localStorage` |
+| Nome do PWA | Padronizado para "Compras" no `manifest.json` (`name`/`short_name`) |
+| Ícone do PWA | **Não resolvido** — arquivo original nunca foi enviado nesta consultoria; permanece o ícone gerado como substituto |
+| Limpeza técnica | `<script context="module">` obsoleto removido de `TelaHistorico.svelte` |
+
+**Achado ao revisar:** a linha do plano que dizia "mover lista entre
+pessoal e família — feito" estava incorreta. A lógica de serviço existe e
+está testada desde o bloco F, mas nunca foi ligada a nenhum botão — é a
+mesma classe de problema dos dois bugs corrigidos nesta rodada (lógica
+pronta, ponte até a interface faltando). Corrigido no registro; a
+correção da interface em si fica para uma próxima rodada.
+
+Build após as mudanças: 0 erros de tipo, **113 testes** (eram 109 — os 4
+novos do onboarding), build limpo.
+
+### ✅ Blocos E/F/G/H — histórico de revisões anteriores
+
+#### Bloco E — Reestruturação técnica (completa)
 
 Tudo o que faltava nas revisões 2 e 3 foi entregue:
 
@@ -71,7 +252,7 @@ Firestore ainda não tinha sido escrito. Ainda assim, o Tesseract (OCR) está
 em chunk separado, carregado só quando a câmera é aberta, então não onera
 quem nunca usa o recurso.
 
-### ✅ Bloco F — Modelo de dados de verdade (completo)
+#### Bloco F — Modelo de dados de verdade (completo)
 
 O modelo granular está publicável e funcional:
 
@@ -90,7 +271,7 @@ Nenhuma coleção nova foi necessária para H3/H4/H5 — leitura de cupom grava
 em `lists`/`items`/`priceEntries` já existentes; inflação e previsão leem
 `priceEntries` e `users/{uid}.itemStats`.
 
-### ✅ Bloco H — Inteligência de preço, completo (H1 a H5)
+#### Bloco H — Inteligência de preço, completo (H1 a H5)
 
 | | Entrega |
 |---|---|
@@ -173,15 +354,22 @@ dois itens novos: testes de integração e revisão de bundle).
 
 | # | Pendência | Situação |
 |---|---|---|
-| ~~1~~ | ~~Mover lista entre pessoal e família~~ | ✅ feito (bloco F) |
+| ~~1~~ | ~~Mover lista entre pessoal e família~~ | ⚠️ **reaberta nesta rodada** — a lógica de serviço está pronta e testada (bloco F), mas nunca foi ligada a um botão na interface. Marcar como "feito" antes era impreciso; corrigido para refletir a realidade: falta a tela. |
 | 2 | Convite direto como "só leitura" na interface da v4 | resolvido na v5; não vale portar para trás |
 | ~~3~~ | ~~Revogar convite~~ | ✅ feito (bloco F) |
 | 4 | Modo Resumida/Completa como decisão manual | aberta — a v5 não tem mais os dois modos: a interface é única e mais enxuta por padrão, o que meio que resolve isso por outro caminho. Vale confirmar em uso se a simplificação foi suficiente. |
 | ~~5~~ | ~~Scroll perdido no re-render~~ | ✅ resolvido estruturalmente na v5 |
 | ~~6~~ | ~~Wake Lock no iOS~~ | ✅ feito (portado para `ModoCompra.svelte`) |
 | 7 | Categoria automática não cobre itens regionais | aberta, baixo custo, baixo impacto |
-| **8** | **Novo:** `FirestoreRepository` sem teste de integração próprio | aberta — ver bloco J |
-| **9** | **Novo:** bundle de 232 KB gzip, sem code-splitting ainda | aberta — ver bloco J |
+| 8 | `FirestoreRepository` sem teste de integração próprio | aberta — ver bloco J |
+| 9 | Bundle de ~235 KB gzip, sem code-splitting ainda | aberta — ver bloco J |
+| ~~10~~ | ~~Sem botão para criar lista nova~~ | ✅ **feito nesta rodada** — `ModalNovaLista.svelte` + botão no cabeçalho |
+| ~~11~~ | ~~Botão "Gerenciar" família não funcionava~~ | ✅ **feito nesta rodada** — causa raiz: argumento descartado por assinatura de função incompatível; corrigido |
+| ~~12~~ | ~~Sem indicador de família ativa~~ | ✅ **feito nesta rodada** — pílula de escopo no cabeçalho |
+| ~~13~~ | ~~Sem onboarding no primeiro acesso~~ | ✅ **feito nesta rodada** — `TelaOnboarding.svelte`, 4 passos, uma vez por aparelho |
+| ~~14~~ | ~~Nome do PWA divergente do nome do produto~~ | ✅ **feito nesta rodada** — manifest padronizado para "Compras" |
+| 15 | Ícone real do PWA | aberta — arquivo original nunca foi enviado nesta consultoria; app publicado com ícone gerado como substituto |
+| 16 | Ordem dos corredores: lógica em uso, sem tela para o usuário configurar | aberta, mesma natureza do item 1 — funcionalidade "invisível" por falta de interface |
 
 ---
 

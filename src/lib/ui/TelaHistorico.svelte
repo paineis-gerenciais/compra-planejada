@@ -15,6 +15,12 @@
     const c = p.items.filter((i) => i.bought).length;
     return `${c} de ${p.items.length}`;
   }
+
+  function agrupar(items: { category: string }[]) {
+    const out: Record<string, any[]> = {};
+    for (const i of items) (out[i.category] ??= []).push(i);
+    return out;
+  }
 </script>
 
 {#if !selecionada}
@@ -57,14 +63,6 @@
     {/snippet}
   </Modal>
 {/if}
-
-<script context="module" lang="ts">
-  function agrupar(items: { category: string }[]) {
-    const out: Record<string, any[]> = {};
-    for (const i of items) (out[i.category] ??= []).push(i);
-    return out;
-  }
-</script>
 
 <style>
   .vazio { color: var(--ink-light); text-align: center; padding: var(--sp-5) 0; }
