@@ -397,9 +397,22 @@
 
   async function aoConvidar(papel: 'editor' | 'viewer') {
     if (!familiaEmGerenciamento || !app.usuario) return '';
-    const inv = await criarConvite(repo, familiaEmGerenciamento.id, app.usuario.uid, papel);
-    convitesDaCasa = await listarConvites(repo, familiaEmGerenciamento.id);
-    return inv.code;
+    try {
+      const inv = await criarConvite(repo, familiaEmGerenciamento.id, app.usuario.uid, papel);
+      // Se a releitura da lista de convites falhar por algum motivo, o
+      // convite em si já foi criado com sucesso — não deixamos essa
+      // segunda etapa travar a exibição do código gerado.
+      try {
+        convitesDaCasa = await listarConvites(repo, familiaEmGerenciamento.id);
+      } catch (e) {
+        console.error('Convite criado, mas a lista não pôde ser recarregada', e);
+      }
+      return inv.code;
+    } catch (e) {
+      console.error('Não foi possível gerar o convite', e);
+      mostrarToast('Não foi possível gerar o convite. Tente de novo.');
+      return '';
+    }
   }
   async function aoRevogarConvite(codigo: string) {
     await revogarConvite(repo, codigo);

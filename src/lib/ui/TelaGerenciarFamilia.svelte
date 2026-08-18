@@ -23,6 +23,7 @@
   }: Props = $props();
 
   let novoCodigo = $state<string | null>(null);
+  let gerandoConvite = $state(false);
   let papelConvite = $state<Exclude<Role, 'owner'>>('editor');
   const membros = $derived(
     Object.entries(household.members).map(([id, m]) => ({ uid: id, ...m }))
@@ -30,7 +31,12 @@
   );
 
   async function convidar() {
-    novoCodigo = await onConvidar(papelConvite);
+    gerandoConvite = true;
+    try {
+      novoCodigo = await onConvidar(papelConvite);
+    } finally {
+      gerandoConvite = false;
+    }
   }
   function copiarLink(code: string) {
     navigator.clipboard?.writeText(`${linkBase}?convite=${code}`).catch(() => {});
@@ -47,7 +53,7 @@
         <option value="editor">Convidar como editor</option>
         <option value="viewer">Convidar como só leitura</option>
       </select>
-      <button onclick={convidar}>Gerar convite</button>
+      <button onclick={convidar} disabled={gerandoConvite}>{gerandoConvite ? 'Gerando...' : 'Gerar convite'}</button>
     </div>
     {#if novoCodigo}
       <div class="codigoBox">
