@@ -1,0 +1,29 @@
+== tablist: foco após ArrowRight a partir de "Mercado": BUTTON "Mercado" | tabindex das abas: [ 0, 0 ]
+== modal editar: foco ao abrir: BUTTON[Editar Tomate] "✎"
+   Tab x12 dentro do modal: BUTTON[Remover Tomate] "×" > INPUT[Adicionar item rapidamente] "" > BUTTON[Ditar itens por voz] "🎤" > BUTTON[Adicionar item] "+" > BUTTON "🛒 Modo compra" > BUTTON "✓ Finalizar compra" > BUTTON "🔀 Mover lista" > BUTTON "🧭 Corredores" > BUTTON "🧾 PDF" > BUTTON "🔗 Compartilhar" > INPUT "" > INPUT ""
+   foco escapou do modal? false
+   após Esc, foco: BODY | modal aberto? 0
+== fundo com aria-hidden/inert quando modal abre? { header: 'nao', main: 'nao' }
+== toast: { texto: 'Não foi possível compartilhar', role: 'status', live: null }
+== alvos < 44px (lista, desktop):
+   30x30 Sua
+   131x30 ML
+   80x37 Mercado
+   64x37 Feira
+   36x37 Nova
+   34x34 Preços, Insights, Ler, Histórico
+   26x26 Marcar
+   15x27 Arrastar
+   20x16 Mover
+   36x36 Editar, Remover
+   460x43 Adicionar
+   42x42 Ditar, Adicionar
+   134x38 🔀, 🧭, 🧾, 🔗
+   alvos < 24px: [
+  { n: 'Arrastar Leite para reordena', w: 15, h: 27 },
+  { n: 'Mover Leite para cima', w: 20, h: 16 },
+  { n: 'Mover Leite para baixo', w: 20, h: 16 },
+  { n: 'Arrastar Tomate para reorden', w: 15, h: 27 },
+  { n: 'Mover Tomate para cima', w: 20, h: 16 },
+  { n: 'Mover Tomate para baixo', w: 20, h: 16 }
+]

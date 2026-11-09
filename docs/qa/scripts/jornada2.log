@@ -1,0 +1,60 @@
+== modo compra
+  rodapé: 2 de 10 pegos R$ 16,47
+  ocultar pegos -> itens visíveis: [
+  'Whey',
+  'Coca-Cola',
+  'Frango',
+  'Queijo',
+  'Leite',
+  'Tomate 2kg R$',
+  'Arroz',
+  'Pão'
+]
+  foco no add-rapido: BUTTON undefined
+  itens após add "2kg tomate" (modo compra): [
+  'Whey',
+  'Coca-Cola',
+  '2kg tomate',
+  'Frango',
+  'Queijo',
+  'Leite',
+  'Tomate 2kg R$',
+  'Arroz',
+  'Pão'
+] | qtd: [
+  '900 g', '2 L',
+  '1',     '1,2 kg',
+  '500 g', '1',
+  '7.5',   '5 kg',
+  '12'
+]
+== finalizar com pendentes
+  modal: FINALIZAR COMPRA | FINALIZAR COMPRA Esta compra sai das suas listas ativas. Ainda há 9 itens não comprados — eles podem iniciar uma lista nova. Frango Whey Pão Coca-Cola Arroz Tomate 2kg R$ Queijo Leite e mais 1... Apenas finalizar Criar lista com os pendentes
+  botões: [ 'Apenas finalizar', 'Criar lista com os pendentes' ]
+  checkout: QUANTO FICOU? | 2 itens comprados · estimativa de R$ 179,87. Anotar o valor real alimenta seu histórico de gastos. Pode pular.
+  diff: R$ 94,47 abaixo da estimativa
+  diff com "1.234,56": R$ 178,64 abaixo da estimativa
+  diff com "R$ 85,40": (sem diff)
+  abas após finalizar: [ 'Mercado 2' ]
+  aba ativa: Mercado 2
+   Sem categoria => Whey [900 g] | Coca-Cola [2 L] | 2kg tomate [1]
+   Açougue => Frango [1,2 kg] $R$ 18,90
+   Frios e Laticínios => Queijo [500 g] | Leite [1]
+   Hortifruti => Tomate 2kg R$ [7.5]
+   Mercearia => Arroz [5 kg] $R$ 28,90
+   Padaria => Pão [12]
+== histórico
+   COMPRAS FINALIZADAS Mercado 09/11/2026 · 2 de 11 itens· R$ 85,40 ›
+  detalhe: MERCADO 09/11/2026 · Mercado Teste · R$ 85,40 AÇOUGUE ☐ Frango 1,2 kg SEM CATEGORIA ☑ Ovos 2 ☐ Whey 900 g ☐ Coca-Cola 2 L ☐ 2kg tomate 1 PADARIA ☐ Pão 12 MERCEARIA ☐ Arroz 5 kg HORTIFRUTI ☐ Tomate 2kg R$ 7.5 FRIOS E LATICÍNIOS ☐ Queijo 500 g ☑ Leite 3 un ☐ Leite 1 Trazer só não comprados Trazer todos
+  abas após reativar: [ 'Mercado 2', 'Mercado' ] | ativa: Mercado 2
+  modal ainda aberto? 0
+== preços (1 compra)
+   PREÇOS Montado a partir das suas compras finalizadas. GASTO POR COMPRA 85 09/11 ITENS (1) Leite 1 registro· Mercado Teste R$ 5,49/un
+  detalhe: LEITE 1 compra registrada· preço por un. ÚLTIMO R$ 5,49 MENOR R$ 5,49 MAIOR R$ 5,49 Voltar Adicionar à lista
+== insights (1 compra)
+   O QUE SUA CESTA ESTÁ DIZENDO Fechar
+== nova lista recorrente
+   NOVA LISTA Dê um nome e configure se ela deve se repetir automaticamente. Nome da lista Lista recorrente Cancelar Criar lista
+== conta/sair
+   SUA CONTA Você está usando o app sem conta — os dados ficam só neste aparelho e não sincronizam. Entre com uma conta a qualquer momento pela tela inicial para ativar a sincronização. Fechar
+  console/erros: []

@@ -1,0 +1,75 @@
+
+### login: 0 violações, 0 incompletos, 31 passes
+
+### onboarding: 0 violações, 1 incompletos, 26 passes
+  ? incompleto aria-required-children (1)
+
+### lista vazia: 1 violações, 2 incompletos, 36 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+  ? incompleto color-contrast (4)
+  ? incompleto label-content-name-mismatch (4)
+
+### lista com itens: 1 violações, 2 incompletos, 36 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+  ? incompleto color-contrast (8)
+  ? incompleto label-content-name-mismatch (24)
+
+### modal editar item: 1 violações, 2 incompletos, 39 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+  ? incompleto color-contrast (8)
+  ? incompleto label-content-name-mismatch (24)
+
+### modo compra: 3 violações, 3 incompletos, 32 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+- [serious] color-contrast (2 nós): Elements must meet minimum color contrast ratio thresholds
+    ex: button[aria-label="Sair do modo compra"] :: Element has insufficient color contrast of 4.08 (foreground color: #ffffff, background color: #62866b, font size: 9.0pt (12px), font weight: || .barra > button:nth-child(3) :: Element has insufficient color contrast of 4.08 (foreground color: #ffffff, background color: #62866b, font size: 9.0pt (12px), font weight:
+- [moderate] region (1 nós): All page content should be contained by landmarks
+    ex: video :: Some page content is not contained by landmarks
+  ? incompleto color-contrast (13)
+  ? incompleto label-content-name-mismatch (2)
+  ? incompleto video-caption (1)
+
+### checkout: 3 violações, 3 incompletos, 37 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+- [serious] color-contrast (2 nós): Elements must meet minimum color contrast ratio thresholds
+    ex: button[aria-label="Sair do modo compra"] :: Element has insufficient color contrast of 4.08 (foreground color: #ffffff, background color: #62866b, font size: 9.0pt (12px), font weight: || .barra > button:nth-child(3) :: Element has insufficient color contrast of 4.08 (foreground color: #ffffff, background color: #62866b, font size: 9.0pt (12px), font weight:
+- [moderate] region (1 nós): All page content should be contained by landmarks
+    ex: video :: Some page content is not contained by landmarks
+  ? incompleto color-contrast (14)
+  ? incompleto label-content-name-mismatch (2)
+  ? incompleto video-caption (1)
+
+### preços: 1 violações, 2 incompletos, 32 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+  ? incompleto color-contrast (2)
+  ? incompleto label-content-name-mismatch (2)
+
+### histórico: 1 violações, 2 incompletos, 31 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+  ? incompleto color-contrast (2)
+  ? incompleto label-content-name-mismatch (2)
+
+### insights: 1 violações, 2 incompletos, 31 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+  ? incompleto color-contrast (2)
+  ? incompleto label-content-name-mismatch (2)
+
+### nova lista: 1 violações, 2 incompletos, 35 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+  ? incompleto color-contrast (2)
+  ? incompleto label-content-name-mismatch (2)
+
+### lista (tema escuro): 1 violações, 2 incompletos, 30 passes
+- [critical] aria-required-children (1 nós): Certain ARIA roles must contain particular children
+    ex: .abas :: Element has children which are not allowed: button[aria-label]
+  ? incompleto color-contrast (2)
+  ? incompleto label-content-name-mismatch (2)

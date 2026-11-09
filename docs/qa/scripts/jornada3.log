@@ -1,0 +1,23 @@
+== ?acao=nova-lista: diálogo aberto? 0 | url http://127.0.0.1:4174/?acao=nova-lista
+== antes do arrasto: Mercearia => Arroz [1] | Feijão [1] | Macarrão [1]
+== depois do arrasto por toque (Arroz -> fim): Mercearia => Feijão [1] | Macarrão [1] | Arroz [1]
+   scrollY 0
+== 1a finalização: Mercado 2  ativa=Mercado 2
+== 2a finalização: Mercado 2 2  ativa=Mercado 2 2
+   modal com pendentes, botoes: [ 'Apenas finalizar', 'Criar lista com os pendentes' ]
+== finalizar tudo sem comprar nada, "Apenas finalizar" -> abas:   ativa=- | corpo: Nenhuma lista ainda.
+   histórico: COMPRAS FINALIZADAS Mercado 2 2 09/11/2026 · 0 de 3 itens › Mercado 2 09/11/2026 · 0 de 3 itens › Mercado 09/11/2026 · 0 de 3 itens ›
+== nova lista Feira (recorrente): Feira  ativa=Feira
+   recorrente + pendente -> modal direto: QUANTO FICOU?
+== após finalizar recorrente: Feira 16/11  ativa=Feira 16/11
+    Hortifruti => Banana [1 dz] | Maçã [1 kg] | meta: 09/11/2026 · repete a cada 7 dias
+== após reload: ● Compra Planejada Entre para sincronizar suas listas entre celular e computador. Continuar com Google ou E-mail Senha Entrar Não tenho cont
+   abas após reload: Mercado  ativa=Mercado | localStorage keys: [ 'compras-onboarding-visto' ]
+== modal conta botões: [ 'Fechar' ]
+   (add com modal aberto não aplicável)
+   erro clique sair TimeoutError: locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('[role=
+   após "sair" no modo sem conta: ● Compra Planejada 👤 ML Minhas listas Mercado + 💰 💡 📷 🕘 MERCADO 09/11/2026 0 de 2 itens SEM CAT
+   reentrando sem conta: abas Mercado  ativa=Mercado | Sem categoria => Teste persistência [1] | Item antes de sair [1]
+   erros: []

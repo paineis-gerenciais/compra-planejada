@@ -1,0 +1,51 @@
+== entrada rápida
+"frango 1,2kg 18,90" previa: → 18.9x Frango 1,2kg · Açougue
+"leite 2 un" previa: → 2 un Leite · Frios e Laticínios
+"leite 1 un" previa: → 1 un Leite · Frios e Laticínios
+"2x ovos" previa: → 2x Ovos
+"Whey 900g" previa: → 900 g Whey
+"pão 12" previa: → 12x Pão · Padaria
+"Coca-Cola 2L" previa: → 2 L Coca-Cola
+"arroz 5kg #Mercearia" previa: → 5 kg Arroz · Mercearia
+"tomate 2kg R$ 7,50" previa: → 7.5x Tomate 2kg R$ · Hortifruti
+"500g queijo" previa: → 500 g Queijo · Frios e Laticínios
+"leite" previa: → 1x Leite · Frios e Laticínios
+   Sem categoria => Ovos [2] | Whey [900 g] | Coca-Cola [2 L]
+   Açougue => Frango 1,2kg [18.9]
+   Frios e Laticínios => Leite [3 un] | Queijo [500 g] | Leite [1]
+   Hortifruti => Tomate 2kg R$ [7.5]
+   Mercearia => Arroz [5 kg]
+   Padaria => Pão [12]
+progresso: 0 de 10 itens
+== marcar / desmarcar
+  após marcar: Ovos 2 ⠿ ▲ ▼ ✎ × | aria-pressed true
+  progresso: 1 de 10 itens
+  desmarcado, progresso: 0 de 10 itens
+== editar item
+  modal: EDITAR ITEM | nome= Frango 1,2kg | qty= 18.9
+  foco ativo ao abrir modal: BUTTON# .acao svelte-1pseo0f
+  foco após fechar: BODY 
+   Sem categoria => Ovos [2] | Whey [900 g] | Coca-Cola [2 L]
+   Açougue => Frango [1,2 kg] $R$ 18,90
+   Frios e Laticínios => Leite [3 un] | Queijo [500 g] | Leite [1]
+   Hortifruti => Tomate 2kg R$ [7.5]
+   Mercearia => Arroz [5 kg]
+   Padaria => Pão [12]
+  total estimado: Total estimado: R$ 18,90
+  total estimado: Total estimado: R$ 179,87
+== reordenar ▲▼
+  antes: Sem categoria => Ovos [2] | Whey [900 g] | Coca-Cola [2 L] // Açougue => Frango [1,2 kg] $R$ 18,90 // Frios e Laticínios => Leite [3 un] $R$ 5,49 | Queijo [500 g] | Leite [1] // Hortifruti => Tomate 2kg R$ [7.5] // Mercearia => Arroz [5 kg] $R$ 28,90 // Padaria => Pão [12]
+  depois ▼: Sem categoria => Ovos [2] | Whey [900 g] | Coca-Cola [2 L] // Açougue => Frango [1,2 kg] $R$ 18,90 // Frios e Laticínios => Queijo [500 g] | Leite [3 un] $R$ 5,49 | Leite [1] // Hortifruti => Tomate 2kg R$ [7.5] // Mercearia => Arroz [5 kg] $R$ 28,90 // Padaria => Pão [12]
+== modo compra
+FALHA locator.click: Error: strict mode violation: getByRole('button', { name: /Marcar como comprado: Leite/ }) resolved to 2 elements:
+    1) <button aria-pressed="false" class="check svelte-1pseo0f" aria-label="Marcar como comprado: Leite">…</button> aka getByRole('button', { name: 'Marcar como comprado: Leite' }).first()
+    2) <button aria-pressed="false" class="check svelte-1pseo0f" aria-label="Marcar como comprado: Leite">…</button> aka getByRole('button', { name: 'Marcar como comprado: Leite' }).nth(1)
+
+Call log:
+[2m  - waiting for getByRole('button', { name: /Marcar como comprado: Leite/ })[22m
+
+    at <pasta-de-trabalho-do-qa>/jornada.cjs:63:75 {
+  log: [
+    "  - waiting for getByRole('button', { name: /Marcar como comprado: Leite/ })"
+  ]
+}

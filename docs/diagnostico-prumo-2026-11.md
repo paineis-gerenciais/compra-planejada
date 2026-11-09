@@ -10,10 +10,11 @@
 
 1. **A base técnica é boa e rara em projeto desse porte:** domínio puro e testado (132 testes em 0,7 s), interface `Repository` com duas implementações, modelo de dados granular com dono discriminado, regras do Firestore que negam tudo por padrão, identidade visual própria e coerente com o domínio. [FATO]
 2. **O produto não está tão pronto quanto o próprio plano afirma.** Encontramos 1 defeito Bloqueador (o modo "Usar sem conta" congela a interface em produção), 2 falhas de integridade nas regras do Firestore (um membro "só leitura" consegue sumir com a família de todos), 3 funcionalidades marcadas como prontas que não funcionam (estatísticas de uso nunca gravadas, presença nunca enviada, perfil nunca criado para contas novas) e 3 defeitos de dados que corrompem o histórico de preços (valor com ponto de milhar lido errado, preço antigo gravado como "pago", unidades kg/g/un misturadas). [FATO]
-3. **O padrão por trás dos defeitos é um só:** a lógica é testada em memória, mas nada testa o caminho real (Firestore com regras, componentes Svelte montados, jornadas no navegador). O plano já tinha diagnosticado isso na revisão 8; o diagnóstico continua certo e a correção ainda não começou.
-4. **A experiência tem identidade forte, mas pede simplificação e correções:** preço digitado vira quantidade sem aviso; o fim da compra não confirma nada; 13 modais, 4 ícones de emoji sem rótulo, 5 controles por linha de item, alvos de toque de 26–36 px, fontes de 9–12,5 px, contraste insuficiente em bordas e no tema escuro, modais sem gestão de foco e nenhum aviso ao usuário quando a sincronização falha.
-5. **Utilidade e potencial:** o valor imediato está no núcleo (anotar, comprar em família, finalizar). A camada de "inteligência de preço", que é o diferencial pretendido e a base do plano Pro, hoje não tem validade estatística nem validação com cupons reais. O freemium de R$ 9,90/mês não fecha as contas com o custo de leitura atual. [HIPÓTESE fundamentada no parecer de negócio]
-6. **Recomendação:** congelar funcionalidades novas por 4 semanas e fazer uma rodada de estabilização (defeitos Bloqueador e Altos, testes contra o emulador do Firestore, medição mínima); depois decidir "uso pessoal × piloto de nicho" com dados, e só então investir em lojas, push ou cobrança.
+3. **Parecer de qualidade: REPROVADO para a 5.0.0** (1 Bloqueador, 1 Alto, 10 Médios, 8 Baixos em aberto). O CI aprova uma build que trava porque nenhum teste monta componente, abre o app ou toca o Firestore com regras. Com o Bloqueador e o Alto corrigidos e um teste de fumaça verde, o parecer passa a "aprovado com ressalvas". [FATO: parecer de QA]
+4. **O padrão por trás dos defeitos é um só:** a lógica é testada em memória, mas nada testa o caminho real (Firestore com regras, componentes Svelte montados, jornadas no navegador). O plano já tinha diagnosticado isso na revisão 8; o diagnóstico continua certo e a correção ainda não começou.
+5. **A experiência tem identidade forte, mas pede simplificação e correções:** preço digitado vira quantidade sem aviso; o fim da compra não confirma nada; 13 modais, 4 ícones de emoji sem rótulo, 5 controles por linha de item, alvos de toque de 26–36 px, fontes de 9–12,5 px, contraste insuficiente em bordas e no tema escuro, modais sem gestão de foco e nenhum aviso ao usuário quando a sincronização falha.
+6. **Utilidade e potencial:** o valor imediato está no núcleo (anotar, comprar em família, finalizar). A camada de "inteligência de preço", que é o diferencial pretendido e a base do plano Pro, hoje não tem validade estatística nem validação com cupons reais. O freemium de R$ 9,90/mês não fecha as contas com o custo de leitura atual. [HIPÓTESE fundamentada no parecer de negócio]
+7. **Recomendação:** congelar funcionalidades novas por 4 semanas e fazer uma rodada de estabilização (defeitos Bloqueador e Altos, testes contra o emulador do Firestore, medição mínima); depois decidir "uso pessoal × piloto de nicho" com dados, e só então investir em lojas, push ou cobrança.
 
 ## 2. Como foi feito e o que não foi verificado
 
@@ -26,6 +27,9 @@
 | Build | `npm run build` | ok em 1,5 s; chunk principal 787,8 kB (237,7 kB gzip); jsPDF 129,7 kB gzip em chunk separado; sourcemaps publicados |
 | Dependências | `npm audit --omit=dev` | 6 vulnerabilidades (5 altas, 1 crítica), todas transitivas e não exploráveis no uso atual (ver parecer de segurança) |
 | Modo sem conta | Playwright sobre `vite preview` | `pageerror: effect_update_depth_exceeded` ao clicar em "Usar sem conta"; interface congela (ver §4, B1) |
+| Jornadas (QA) | Playwright sobre a cópia corrigida, 390 px com toque | 11 jornadas sem defeito (consolidar, marcar, editar, arrastar, modo compra, finalizar com pendentes, recorrência, histórico); 20 defeitos registrados (D-02 a D-21) |
+| Acessibilidade automática (QA) | axe-core injetado em 10 telas | login 0 violações; 1 violação crítica recorrente (`role="tablist"` com filho inválido); contraste 4,08:1 em botões do modo compra |
+| Responsividade (QA) | Playwright em 320, 390, 768 e 1280 px | sem rolagem horizontal; layout inutilizável a 320 px (nome do item com 1 palavra por linha) |
 | Offline | Playwright, `setOffline(true)` após primeira visita | recarga e nova aba falham com `net::ERR_FAILED`; cache do service worker vazio (ver §4, A-FE1) |
 
 **Não verificado (exige console do Firebase, aparelho real ou usuários):** regras realmente publicadas em produção e papel IAM da conta de serviço do CI; plano de cobrança (Spark ou Blaze), região, backup e alertas de custo; volume real de leituras; comportamento em iOS Safari (arrastar, Wake Lock, login por redirecionamento); OCR com fotos reais de cupom; qualquer dado de uso ou opinião de usuário. A rede desta sessão bloqueou `firebase.google.com`, então preços e cotas oficiais do Firebase ficaram como hipótese no parecer de negócio.
@@ -85,7 +89,7 @@ Os identificadores remetem ao parecer de origem (ARQ arquitetura · FE front-end
 - **Dados (DAD M1–M8):** previsão de recompra sensível a outliers (média dos extremos); itens abandonados dominam a lista sugerida para sempre; estimado × pago soma itens não comprados; comparação de lojas em texto livre e com n=1; `source: 'ocr'` nunca gravado; data do cupom extraída e descartada.
 - **Produto (PRO P4–P13):** entrada rápida sem autocompletar; 4 ações secundárias fixas disputando com as 2 principais; nome inconsistente ("Compra Planejada" × "Compras"); sem busca nem orçamento; plano escrito como ata de revisões, não como roadmap.
 - **UX e design (UX 3–30, DES P7–P21):** ver §5.2. Dois pontos que os pareceres deixaram como "não verificado" e o Head conferiu no código: remover item não pede confirmação nem oferece desfazer (`ItemLinha.svelte:76` chama `onRemover` direto; `App.svelte:208` apaga na hora) e "Sair da família" / "Excluir família" também não pedem confirmação (`TelaGerenciarFamilia.svelte:100` chama `onSair` direto), o que, somado ao achado S-09 (dados órfãos ao excluir), é um risco de perda de acesso a dados em um toque. [FATO]
-- **QA:** ver §5.4 e o parecer de qualidade.
+- **Qualidade (QA D-03 a D-21):** no modo sem conta não há como entrar com conta nem sair (o modal de conta só tem "Fechar", e o ramo de saída é inalcançável); o campo "+ item" do modo compra não interpreta o texto (cria o item "2kg tomate" cru, sem quantidade nem categoria); "R$ 85,40" digitado no checkout é descartado em silêncio; "Insights" com 1 compra abre vazio, sem explicação; `role="tablist"` inválido em todas as telas com lista; nome de lista acumula sufixo ("Mercado 2 2"); "Trazer só não comprados" não confirma nada; finalizar sem comprar grava compra vazia; itens são `div` sem semântica de lista; prévia `aria-live` fala a cada tecla. Ver §5.3.
 
 ## 5. Três olhares
 
@@ -119,7 +123,24 @@ O que está bom: separação domínio/dados/serviços/interface, tipagem estrita
 
 **Nota do Head sobre uma divergência entre pareceres:** o parecer de design classificou o "Frango 1,2kg · 18.9" das capturas como artefato do roteiro de captura. Não é: o texto foi digitado inteiro na entrada rápida, e o interpretador tratou "18,90" como quantidade (`parse.ts:80-89`). Vale o achado do parecer de UX.
 
-### 5.3 Utilidade, impacto e potencial
+### 5.3 Qualidade e testes
+
+**Parecer do qa-engineer: REPROVADO para a 5.0.0.** Pela constituição, Bloqueador ou Alto em aberto impedem merge e release. [FATO]
+
+| Camada | Estado |
+|---|---|
+| Domínio | Forte: 94% de linhas, 81% de ramos, regressões nomeadas, 132 casos em 0,5 s, sem rede |
+| Serviços | Parcial: `listas.ts` com 41% de ramos; `ocr.ts`, `pdf.ts`, `compartilhar.ts` fora do relatório |
+| `MemoryRepository` | Médio: 64% de linhas, só caminho feliz |
+| `FirestoreRepository`, regras do Firestore, store, `App.svelte`, 20 componentes, E2E, acessibilidade automática | **Zero.** Foi aqui que nasceu o Bloqueador, e é por isso que o CI ficou verde |
+
+**O que o QA verificou de fato (cópia corrigida):** 11 jornadas sem defeito, entre elas consolidar duplicados ("leite 2 un" + "leite 1 un" = "Leite 3 un"), arrastar por toque, modo compra com "ocultar pegos", finalizar com pendentes criando "Mercado 2", lista recorrente renovando com a data certa, e preços com 1 compra sem divisão por zero. Desempenho local (sem rede lenta, não é produção): primeira pintura em 184 ms, sem tarefas longas, CLS 0. [FATO]
+
+**Defeitos novos que só o navegador revelou (além dos já citados):** o campo "+ item" do modo compra grava o texto cru; "R$ 85,40" no checkout vira `NaN` e some em silêncio; Insights vazio com 1 compra; `tablist` inválido para leitores de tela; modais sem foco confirmados por teclado (Tab percorre 10 controles do fundo antes de chegar ao modal); layout a 320 px inutilizável. [FATO: parecer de QA, D-05 a D-12]
+
+**Estratégia recomendada (pirâmide):** manter o domínio e acrescentar casos de preço e valor em reais; testes de store e serviços com jsdom; testes de componente (`Modal`, `EntradaRapida`, `ModalCheckout`, `TelaInsights`); suíte de contrato do repositório rodando também contra o emulador; testes de regras com `@firebase/rules-unit-testing` antes do job que publica regras; 10 casos E2E em Playwright sobre `vite preview` no modo sem conta, com axe em cada tela e larguras 320/390/768/1280; fumaça pós-deploy no canal de preview; portões de CI (cobertura 80/65/80 com `all: true`, 0 `pageerror`, 0 violações sérias de axe, Lighthouse móvel ≥ 0,85, JS inicial ≤ 250 kB gzip). O primeiro caso E2E é "entrar sem conta e ver a lista vazia sem erro": ele falha hoje e teria barrado a 5.0.0.
+
+### 5.4 Utilidade, impacto e potencial
 
 **Utilidade hoje:** alta para quem o usa (o autor e família): anotar, comprar junto, finalizar e ter histórico funcionam de ponta a ponta no modo com conta. O núcleo entrega. A camada de preço entrega menos do que promete (A-DAD2 a A-DAD6).
 
@@ -139,17 +160,18 @@ Princípio: **nada novo antes de estabilizar e medir.** Esforço: P (até 1 dia)
 
 | # | Entrega | Resolve | Responsável | Esforço |
 |---|---|---|---|---|
-| 1 | Corrigir B1 (`untrack`) com teste de regressão E2E do modo sem conta | B1 | frontend-engineer, qa-engineer | P |
+| 1 | Corrigir B1 (`untrack`) e criar o teste E2E de fumaça "entrar sem conta, concluir onboarding, adicionar item, 0 `pageerror`" em Playwright sobre `vite preview`, obrigatório no CI | B1, QA E2E 1 | frontend-engineer, qa-engineer | P–M |
 | 2 | Invariantes de `households` nas regras + suíte de regras no emulador no CI, antes do job que publica regras | A-SEG1, A-SEG2, A-SEG5 | backend-engineer, qa-engineer | M |
 | 3 | Conferir regras publicadas e papel IAM; pin das actions; versão fixa do `firebase-tools`; um só caminho de publicação | A-SEG3, A-SEG4, S-15 | usuário (console) + devsecops-engineer | P |
 | 4 | Perfil criado no primeiro login; `atualizarEstatisticas` no lote de `finalizarCompra`; `finalizarCompra` atômico e idempotente | A-ARQ2, A-ARQ3, F6 | backend-engineer | P–M |
-| 5 | `parseValorBR` único; preço de referência separado do preço confirmado; `source` propagado | A-DAD2, A-DAD3, M7 | frontend-engineer | P–M |
-| 6 | Decidir e executar o modo sem conta: persistir em `localStorage` ou remover | A-ARQ1 | usuário decide; frontend-engineer | P |
+| 5 | `parseValorBR` único (aceita "1.234,56" e "R$ 85,40"); preço de referência separado do preço confirmado; `source` propagado | A-DAD2, A-DAD3, D-06, M7 | frontend-engineer | P–M |
+| 6 | Decidir e executar o modo sem conta: persistir em `localStorage` ou remover; dar saída ("Entrar com conta") no modal de conta | A-ARQ1, D-02, D-03 | usuário decide; frontend-engineer | P |
 | 7 | Corrigir o plano: "Medindo" para ⬜, OCR para "não validado", inventário alinhado ao código; atualizar README | A-PRO1, A-DAD6, FE | Head, product-manager | P |
 | 8 | Medição mínima a partir dos dados existentes (`purchases`, `users.createdAt`) e campos agregados em `users/{uid}.resumo`, com script administrativo | A-PRO1 | data-bi-engineer, devsecops-engineer (aprovação do usuário: dados pessoais) | M |
 | 9 | Nome único do produto e texto do onboarding sem promessa não cumprida | A-PRO2, P7 | usuário decide; Head | P |
 | 10 | `npm update dompurify re2js vite vitest`; Dependabot semanal; `coverage/` no `.gitignore` | S-18, S-24 | frontend-engineer, devsecops-engineer | P |
 | 11 | Entrada rápida: reconhecer preço no fim do texto e mostrar na prévia; aviso quando o número final for ambíguo | A-UX1 | frontend-engineer | P |
+| 11b | "+ item" do modo compra passa pelo mesmo interpretador da entrada rápida; Insights com estado vazio explicativo; `tablist` corrigido ou trocado por botões com `aria-current` | D-05, D-07, D-11 | frontend-engineer | P |
 
 ### Horizonte 2: experiência e confiabilidade (até 3 meses)
 
@@ -157,6 +179,7 @@ Princípio: **nada novo antes de estabilizar e medir.** Esforço: P (até 1 dia)
 |---|---|---|---|---|
 | 12 | `vite-plugin-pwa`: pré-cache do shell, fontes e OCR hospedados no próprio app, aviso de nova versão | A-FE1, S-12, FE | frontend-engineer | M |
 | 13 | Firestore carregado sob demanda após a sessão; meta ≤ 120 kB gzip no login; `sourcemap: 'hidden'` | A-FE2, S-19 | frontend-engineer | M |
+| 13b | Pirâmide de testes: contrato do repositório no emulador, testes de componente, 10 casos E2E, axe e Lighthouse no CI com portões (cobertura `all: true`, 0 `pageerror`, 0 violação séria) | QA estratégia, A-SEG5 | qa-engineer, frontend-engineer, devsecops-engineer | M–G |
 | 14 | `Modal` em `<dialog>` nativo (foco, trap, Esc); indicador de sincronização e erros visíveis; esqueleto de carga | FE Médios, F9 | frontend-engineer, ui-product-design | P–M |
 | 14b | Pós-compra com confirmação, desfazer e chamada para nova lista; finalizar num painel único | A-UX2, UX 15 | frontend-engineer, ui-product-design | P–M |
 | 15 | Simplificação da interface conforme §5.2: ícones SVG com rótulo e alvo de 44 px, escala tipográfica em tokens, menu "⋯" para ações raras, tokens de contraste, estados vazio/carga/erro, alternador de tema; depois, barra inferior validada com 5 usuários | A-DES1, A-DES2, UX 5–13, P5, P6 | ui-product-design, ux-research, frontend-engineer | M–G |
